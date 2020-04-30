@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "minifaas-rt",
+    "minifaas-web",
+]

@@ -1,0 +1,11 @@
+[main]
+dir = "templates"
+debug = "all"
+
+[debug]
+theme = "zenburn"
+number_line = true
+grid = true
+header = true
+paging = false
+short = false

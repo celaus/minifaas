@@ -1,0 +1,17 @@
+[package]
+name = "minifaas-web"
+version = "0.1.0"
+authors = ["Claus Matzinger <claus.matzinger+kb@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-web = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+env_logger = "0.7"
+actix-rt = "1"
+yarte = "0.8"
+chrono = "0.4"
+minifaas-rt = { path = "../minifaas-rt" }

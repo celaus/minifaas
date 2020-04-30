@@ -1,0 +1,15 @@
+<div id="fn-name">
+    {{ name }}
+</div>
+
+<textarea id="editor">
+    {{ code }}
+</textarea>
+
+<script>
+    const editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
+        lineNumbers: true,
+        mode: "text/javascript",
+        matchBrackets: true
+    });
+</script>
