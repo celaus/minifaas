@@ -1,6 +1,6 @@
-use actix_web::{middleware, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{middleware, web, App, HttpResponse, HttpServer, Responder, error::ErrorInternalServerError};
 use chrono::prelude::*;
-use minifaas_rt::languages::{Compiler, Executor};
+use minifaas_rt::languages::{Compiler, Executor, javascript};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result, Value};
 use std::boxed::Box;
@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
 
-use yarte::TemplateMin;
+use askama::Template;
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "lang")]
@@ -22,17 +22,21 @@ enum Trigger {
     Http { method: String },
 }
 
-#[derive(Serialize, Deserialize, TemplateMin)]
-#[template(path = "index.hbs")]
+#[derive(Serialize, Deserialize)]
 struct UserFunctionDeclaration {
     name: String,
     code: String,
     #[serde(flatten)]
     trigger: Trigger,
-
     #[serde(flatten)]
     language: ProgrammingLanguage,
-    timestamp: Date<Utc>,
+    timestamp: DateTime<Utc>,
+}
+
+#[derive(Template)]
+#[template(path = "index.html")]
+struct IndexViewModel<'a> {
+    functions: Vec<&'a Box<UserFunctionDeclaration>>,
 }
 
 async fn call_function(
@@ -41,7 +45,7 @@ async fn call_function(
 ) -> HttpResponse {
     let name = name.to_string();
     if let Some(func) = (*storage).lock().unwrap().get(&name) {
-        let svc = languages::javascript::DuccJS {};
+        let svc = javascript::DuccJS {};
         let compiled = svc.compile(&func.code).unwrap();
         svc.run(compiled, None);
         HttpResponse::Ok().finish()
@@ -73,16 +77,21 @@ async fn list_all_functions(
     HttpResponse::Ok().json(functions)
 }
 
-#[get("/")]
+#[actix_web::get("/")]
 async fn index(
     storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let mut functions = vec![];
     let raw = (*storage).lock().unwrap();
-    functions.push(function.clone())
-    HttpResponse::Ok().json(functions)
-}
+    for function in raw.values() {
+        functions.push(function.clone())
+    }
+    IndexViewModel { functions }.render().map(|body|{
+        HttpResponse::Ok().content_type("text/html; charset=utf-8").body(body)
+    })
+    .map_err(|_| ErrorInternalServerError("Some error message"))
 
+}
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
@@ -97,6 +106,7 @@ async fn main() -> std::io::Result<()> {
                 method: "GET".to_owned()
             },
             language: ProgrammingLanguage::JavaScript,
+            timestamp: Utc::now()
         })
         .unwrap()
     );
@@ -118,10 +128,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/f/")
                     .service(web::resource("/call/{name}").route(web::get().to(call_function))),
             )
-            .service(
-                web::scope("/")
-                    .service(index)
-            )
+            .service(index)
     })
     .bind("127.0.0.1:8081")?
     .run()
