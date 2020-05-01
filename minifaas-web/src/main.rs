@@ -1,17 +1,16 @@
+use actix_files as fs;
 use actix_web::{
     error::ErrorInternalServerError, middleware, web, App, HttpResponse, HttpServer, Responder,
 };
+use askama::Template;
 use chrono::prelude::*;
-use minifaas_rt::languages::{javascript, Compiler, Executor};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result, Value};
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
-use actix_files as fs;
 use uuid::Uuid;
-use askama::Template;
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "lang")]
@@ -33,7 +32,6 @@ impl std::fmt::Display for ProgrammingLanguage {
 enum Trigger {
     Http { method: String },
 }
-
 
 impl std::fmt::Display for Trigger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -63,19 +61,35 @@ struct IndexViewModel<'a> {
     triggers: Vec<Trigger>,
 }
 
+// async fn call_function(
+//     storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
+//     name: web::Path<String>,
+// ) -> HttpResponse {
+//     let name = name.to_string();
+//     if let Some(func) = (*storage).lock().unwrap().get(&name) {
+//         let svc = javascript::DuccJS {};
+//         let compiled = svc.compile(&func.code).unwrap();
+//         svc.run(compiled, None);
+//         HttpResponse::Ok().finish()
+//     } else {
+//         HttpResponse::BadRequest().finish()
+//     }
+// }
 async fn call_function(
     storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
     name: web::Path<String>,
 ) -> HttpResponse {
     let name = name.to_string();
-    if let Some(func) = (*storage).lock().unwrap().get(&name) {
-        let svc = javascript::DuccJS {};
-        let compiled = svc.compile(&func.code).unwrap();
-        svc.run(compiled, None);
-        HttpResponse::Ok().finish()
-    } else {
-        HttpResponse::BadRequest().finish()
-    }
+    HttpResponse::Ok().finish()
+
+    //     if let Some(func) = (*storage).lock().unwrap().get(&name) {
+    //         let svc = javascript::DuccJS {};
+    //         let compiled = svc.compile(&func.code).unwrap();
+    //         svc.run(compiled, None);
+    //         HttpResponse::Ok().finish()
+    //     } else {
+    //         HttpResponse::BadRequest().finish()
+    //     }
 }
 
 async fn add_new_function(
@@ -110,14 +124,19 @@ async fn index(
     for function in raw.values() {
         functions.push(function.clone())
     }
-    IndexViewModel { functions, triggers: vec![Trigger::Http { method: "GET".to_owned() }] }
-        .render()
-        .map(|body| {
-            HttpResponse::Ok()
-                .content_type("text/html; charset=utf-8")
-                .body(body)
-        })
-        .map_err(|_| ErrorInternalServerError("Some error message"))
+    IndexViewModel {
+        functions,
+        triggers: vec![Trigger::Http {
+            method: "GET".to_owned(),
+        }],
+    }
+    .render()
+    .map(|body| {
+        HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .body(body)
+    })
+    .map_err(|_| ErrorInternalServerError("Some error message"))
 }
 
 #[actix_rt::main]
@@ -153,12 +172,8 @@ async fn main() -> std::io::Result<()> {
                     .service(web::resource("/f").route(web::put().to(add_new_function)))
                     .service(web::resource("/functions").route(web::get().to(list_all_functions))),
             )
-            .service(
-                web::scope("/f/")
-                    .service(web::resource("/call/{name}").to(call_function)),
-            )
+            .service(web::scope("/f/").service(web::resource("/call/{name}").to(call_function)))
             .service(index)
-
     })
     .bind("127.0.0.1:8081")?
     .run()

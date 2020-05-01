@@ -3,8 +3,8 @@ pub mod traits;
 pub mod triggers;
 pub mod errors;
 
-use crate::languages::CompiledFunction;
-use languages::{Compiler, Executor};
+use crate::languages::Runtime;
+use languages::{FunctionCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -14,6 +14,7 @@ use errors::LanguageRuntimeError;
 use triggers::{FunctionInputs, FunctionOutputs};
 use std::sync::Arc;
 use std::collections::HashMap;
+use languages::JavaScript;
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "lang")]
@@ -56,8 +57,8 @@ pub struct RuntimeConfiguration {
 
 }
 
-fn execute_function(inputs: FunctionInputs, response_channel: Sender<RuntimeResponse>, executor: Arc<Box<impl Executor>>, func: Arc<Box<impl CompiledFunction>>) -> Result<(), LanguageRuntimeError> {
-    let outputs = executor.run(func, Some(inputs));
+fn execute_function(inputs: FunctionInputs, response_channel: Sender<RuntimeResponse>, runtime: Arc<Box<Runtime>>, func: Arc<Box<FunctionCode>>) -> Result<(), LanguageRuntimeError> {
+    let outputs = runtime.javascript(func, inputs)?;
     response_channel.send(RuntimeResponse::FunctionResponse(outputs));
     Ok(())
 }
@@ -78,19 +79,19 @@ pub fn create_runtime(config: RuntimeConfiguration
         .num_threads(config.num_threads)
         .build()
         .unwrap();
-        let functions = HashMap::<String, (Arc<Box<dyn CompiledFunction>>, Arc<Box<dyn Executor>>)>::new();
-        while (!stop) {
+        let functions = HashMap::<String, (Arc<Box<FunctionCode>>, Arc<Box<Runtime>>)>::new();
+        while !stop {
             if let Ok(pkg) = input_channel_receiver.recv_timeout(timeout) {
                 match pkg {
                     RuntimeRequest::Shutdown => stop = true,
                     RuntimeRequest::FunctionCall(name, inputs) => {
-                        let tx = output_channel_sender.clone();
                         functions.get(&name).map(|f|{
+                            let tx = output_channel_sender.clone();
                             let (func, exec) = f;
                             worker_pool.install(|| execute_function(inputs, tx, exec.clone(), func.clone()));
 
                         }).or_else(||{
-                            tx.send(RuntimeResponse::FunctionNotFoundResponse(name));
+                            output_channel_sender.clone().send(RuntimeResponse::FunctionNotFoundResponse(name));
                             None
                         });
                     },
