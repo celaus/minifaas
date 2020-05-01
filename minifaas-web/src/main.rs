@@ -1,13 +1,16 @@
-use actix_web::{middleware, web, App, HttpResponse, HttpServer, Responder, error::ErrorInternalServerError};
+use actix_web::{
+    error::ErrorInternalServerError, middleware, web, App, HttpResponse, HttpServer, Responder,
+};
 use chrono::prelude::*;
-use minifaas_rt::languages::{Compiler, Executor, javascript};
+use minifaas_rt::languages::{javascript, Compiler, Executor};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result, Value};
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
-
+use actix_files as fs;
+use uuid::Uuid;
 use askama::Template;
 
 #[derive(Serialize, Deserialize)]
@@ -16,14 +19,34 @@ enum ProgrammingLanguage {
     JavaScript,
 }
 
+impl std::fmt::Display for ProgrammingLanguage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match &self {
+            ProgrammingLanguage::JavaScript => "JavaScript".to_owned(),
+        };
+        write!(f, "{}", text)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "trigger")]
 enum Trigger {
     Http { method: String },
 }
 
+
+impl std::fmt::Display for Trigger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match &self {
+            Trigger::Http { method } => format!("Http trigger ({})", method),
+        };
+        write!(f, "{}", text)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct UserFunctionDeclaration {
+    id: String,
     name: String,
     code: String,
     #[serde(flatten)]
@@ -37,6 +60,7 @@ struct UserFunctionDeclaration {
 #[template(path = "index.html")]
 struct IndexViewModel<'a> {
     functions: Vec<&'a Box<UserFunctionDeclaration>>,
+    triggers: Vec<Trigger>,
 }
 
 async fn call_function(
@@ -86,11 +110,14 @@ async fn index(
     for function in raw.values() {
         functions.push(function.clone())
     }
-    IndexViewModel { functions }.render().map(|body|{
-        HttpResponse::Ok().content_type("text/html; charset=utf-8").body(body)
-    })
-    .map_err(|_| ErrorInternalServerError("Some error message"))
-
+    IndexViewModel { functions, triggers: vec![Trigger::Http { method: "GET".to_owned() }] }
+        .render()
+        .map(|body| {
+            HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                .body(body)
+        })
+        .map_err(|_| ErrorInternalServerError("Some error message"))
 }
 
 #[actix_rt::main]
@@ -100,6 +127,7 @@ async fn main() -> std::io::Result<()> {
     println!(
         "serialized {}",
         serde_json::to_string_pretty(&UserFunctionDeclaration {
+            id: "id..".to_owned(),
             name: "abc".to_owned(),
             code: "more abc".to_owned(),
             trigger: Trigger::Http {
@@ -119,6 +147,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .app_data(storage.clone()) // add shared state
             .data(web::JsonConfig::default()) // <- limit size of the payload (global configuration)
+            .service(fs::Files::new("/assets", "./minifaas-web/static").show_files_listing())
             .service(
                 web::scope("/api/v1/")
                     .service(web::resource("/f").route(web::put().to(add_new_function)))
@@ -126,9 +155,10 @@ async fn main() -> std::io::Result<()> {
             )
             .service(
                 web::scope("/f/")
-                    .service(web::resource("/call/{name}").route(web::get().to(call_function))),
+                    .service(web::resource("/call/{name}").to(call_function)),
             )
             .service(index)
+
     })
     .bind("127.0.0.1:8081")?
     .run()

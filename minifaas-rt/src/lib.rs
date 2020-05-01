@@ -1,33 +1,36 @@
-pub mod traits;
 pub mod languages;
+pub mod traits;
 pub mod triggers;
+pub mod errors;
 
-use std::{env};
-use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use std::collections::HashMap;
-use std::boxed::Box;
+use crate::languages::CompiledFunction;
 use languages::{Compiler, Executor};
-use serde_json::{Result, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
+use std::time::Duration;
+use errors::LanguageRuntimeError;
+use triggers::{FunctionInputs, FunctionOutputs};
+use std::sync::Arc;
+use std::collections::HashMap;
 
-#[derive(Serialize,Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "lang")]
 enum ProgrammingLanguage {
     JavaScript,
 }
 
-#[derive(Serialize,Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "trigger")]
 enum Trigger {
     Http { method: String },
 }
 
-
-#[derive(Serialize,Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct UserFunctionDeclaration {
     name: String,
     code: String,
-    
     #[serde(flatten)]
     trigger: Trigger,
 
@@ -36,33 +39,67 @@ struct UserFunctionDeclaration {
 }
 
 
-// async fn call_function(storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>, name: web::Path<String>) -> HttpResponse {
-//     let name = name.to_string();
-//     if let Some(func) = (*storage).lock().unwrap().get(&name) {
-//         let svc = languages::javascript::DuccJS {};
+pub enum RuntimeRequest {
+    Shutdown,
+    FunctionCall(String, FunctionInputs)
+}
+
+pub enum RuntimeResponse {
+    FunctionResponse(FunctionOutputs),
+    FunctionNotFoundResponse(String)
+}
+
+
+pub struct RuntimeConfiguration {
+    num_threads: usize,
+    functions: Vec<UserFunctionDeclaration>, 
+
+}
+
+fn execute_function(inputs: FunctionInputs, response_channel: Sender<RuntimeResponse>, executor: Arc<Box<impl Executor>>, func: Arc<Box<impl CompiledFunction>>) -> Result<(), LanguageRuntimeError> {
+    let outputs = executor.run(func, Some(inputs));
+    response_channel.send(RuntimeResponse::FunctionResponse(outputs));
+    Ok(())
+}
+
+pub fn create_runtime(config: RuntimeConfiguration
+) -> Result<(Sender<RuntimeRequest>, Receiver<RuntimeResponse>), LanguageRuntimeError> {
+
+    let (input_channel_sender, input_channel_receiver) = channel::<RuntimeRequest>();
+    let (output_channel_sender, output_channel_receiver) = channel::<RuntimeResponse>();
+
+
+    let timeout = Duration::from_secs(1);
+
+    thread::spawn(move || {
+        let mut stop = false;
+
+        let worker_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(config.num_threads)
+        .build()
+        .unwrap();
+        let functions = HashMap::<String, (Arc<Box<dyn CompiledFunction>>, Arc<Box<dyn Executor>>)>::new();
+        while (!stop) {
+            if let Ok(pkg) = input_channel_receiver.recv_timeout(timeout) {
+                match pkg {
+                    RuntimeRequest::Shutdown => stop = true,
+                    RuntimeRequest::FunctionCall(name, inputs) => {
+                        let tx = output_channel_sender.clone();
+                        functions.get(&name).map(|f|{
+                            let (func, exec) = f;
+                            worker_pool.install(|| execute_function(inputs, tx, exec.clone(), func.clone()));
+
+                        }).or_else(||{
+                            tx.send(RuntimeResponse::FunctionNotFoundResponse(name));
+                            None
+                        });
+                    },
+                    _ => {}
+                }
+            }
+        }
+    });
     
-//         let compiled = svc.compile(&func.code).unwrap();
-//         svc.run(compiled, None);
-//         HttpResponse::Ok().finish()
-//     }
-//     else{
-//         HttpResponse::BadRequest().finish()
-//     }
-// }
-
-// async fn add_new_function(storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>, item: web::Json<UserFunctionDeclaration>) -> HttpResponse {
-//     let name = item.name.clone();
-//     (*storage).lock().unwrap().insert(name, Box::new(item.into_inner()));
-//     HttpResponse::Ok().finish()
-// }
-
-// async fn list_all_functions(storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>) -> HttpResponse {
-
-//     let mut functions = vec![];
-//     let raw = (*storage).lock().unwrap();
-//     for function in raw.values() {
-//         functions.push(function.clone())
-//     }
-//     HttpResponse::Ok().json(functions)
-// }
-
+    Err(LanguageRuntimeError::None{})
+    //let (rx, tx) = channel<RuntimeResponse>();
+}

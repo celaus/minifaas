@@ -8,46 +8,85 @@
         integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.53.2/codemirror.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.53.2/codemirror.min.js"></script>
 
 </head>
 
 <body>
     <div class="container">
-        <div class="row">
-            <div class="col-sm-4">
+        <div class="row mt-3">
+            <div class="col-lg-4">
+            </div>
+            <div class="col-lg-8">
+                <h1>MiniFaaS</h1>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-lg-4">
                 {% for func in functions %}
-                <div class="row mt-2 mb-2">
-                    <a href="#" onclick="showInEditor('{{ func.code }}')">{{ func.name }}</a>
+                <div id="fn-{{ func.id }}" class="row border-bottom mt-3 mb-3">
+                    <div class="col-lg-10">
+                        <div class="row">
+                            <div class="col-lg-12">
+                                <a href="#"
+                                    onclick="selectToShow('{{ func.name }}', '{{ func.code }}', '{{ func.trigger }}')">{{ func.name }}</a>
+                            </div>
+                        </div>
+                        <div class="row text-muted">
+                            <div class="col-lg-12">
+                                {{ func.language }} {{ func.trigger }}</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-2">
+                        <button onclick="callFunction('{{ func.name }}')" type="button" class="btn btn-primary">Call</button>
+                    </div>
                 </div>
                 {% endfor %}
+
+                {% if functions.len() == 0 %}
+                <div class="row mt-3 mb-3">
+                    <div class="col-lg-12">
+                        <p class="font-weight-light">No functions defined yet ...</p>
+                    </div>
+                </div>
+                {% endif %}
             </div>
-            <div class="col-lg-12 pb-3">
-                <div id="fn-name">
+            <div class="col-lg-8">
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="input-group mb-3">
+                            <div class="input-group-prepend">
+                                <select class="custom-select" id="fn-trigger-select">
+                                    <option selected>Choose...</option>
+                                    {% for trigger in triggers %}
+                                    <option value="{{ trigger }}">{{ trigger }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <input id="fn-name" type="text" class="form-control" aria-label="Name and trigger">
+                        </div>
+                    </div>
                 </div>
 
-                <textarea id="editor">
-                </textarea>
+                <div class="row">
+                    <div class="col-lg-12 mb-3 ml-3 pl-0 border">
+                        <textarea id="editor">Code goes here</textarea>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="offset-md-11 col-lg-1">
+                        <button onclick="saveFunction()" type="button" class="btn btn-success">Save</button>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-lg-12">
 
-                <script>
-                    const editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
-                        lineNumbers: true,
-                        mode: "text/javascript",
-                        matchBrackets: true
-                    });
-                    
-                    function showInEditor(txt) {
-                        editor.setValue(txt);
-                        editor.focus();
-                        return true;
-                    }
-                </script>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
-
-    <script lang="JavaScript">
-        
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.53.2/codemirror.min.js"></script>
+    <script src="/assets/app.js">
     </script>
 </body>
 

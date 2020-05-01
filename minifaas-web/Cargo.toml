@@ -15,3 +15,5 @@ actix-rt = "1"
 chrono = { version = "0.4", features = ["serde"] }
 minifaas-rt = { path = "../minifaas-rt" }
 askama = "0.9"
+actix-files = "0.2"
+uuid = { version = "0.8", features = ["serde", "v4"] }

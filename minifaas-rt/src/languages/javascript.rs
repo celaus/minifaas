@@ -1,6 +1,7 @@
 use crate::languages::{Compiler, FunctionInputs, FunctionOutputs, Executor, CompiledFunction};
 use ducc::{Ducc, Value, Result as DuccResult};
 use crate::languages::Result;
+use std::sync::Arc;
 
 pub struct DuccJS {
 }
@@ -14,7 +15,7 @@ impl Compiler for DuccJS {
 
 impl Executor for DuccJS {
     type ByteCodeType = CompiledJS;
-    fn run(&self, func: Box<Self::ByteCodeType>, inputs: Option<FunctionInputs>) -> Result<FunctionOutputs> {
+    fn run(&self, func: Arc<Box<Self::ByteCodeType>>, inputs: Option<FunctionInputs>) -> Result<FunctionOutputs> {
         let code = func.executable();
         let ducc = Ducc::new();
         let func: Value = ducc.compile(code, None).unwrap().call(()).unwrap();
@@ -25,7 +26,6 @@ impl Executor for DuccJS {
         Ok(FunctionOutputs::None)
     }
 }
-
 
 
 pub struct CompiledJS {
@@ -45,4 +45,8 @@ impl CompiledFunction for CompiledJS {
     fn executable(&self) -> &Self::ByteCodeType {
         &self.code
     }
+}
+
+pub fn load_toolchain() -> (DuccJS, DuccJS) {
+    DuccJS {}
 }
