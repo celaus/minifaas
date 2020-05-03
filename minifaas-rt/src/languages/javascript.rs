@@ -1,57 +1,60 @@
-use crate::triggers::{FunctionInputs, FunctionOutputs};
-use crate::languages::{FunctionCode, Result, SourceCode, Runtime};
-use ducc::{Ducc, Result as DuccResult, Value};
-use std::sync::Arc;
+use crate::languages::{FunctionCode, Result, Runtime, SourceCode};
+use ducc::{Ducc, ErrorKind, Result as DuccResult, Value, FromValue};
+use minifaas_common::{errors::ExecutionError, FunctionInputs, FunctionOutputs};
+use std::collections::HashMap;
 
 pub trait JavaScript {
-    fn javascript(&self, func: Arc<Box<FunctionCode>>, inputs: FunctionInputs) -> Result<FunctionOutputs> {
+    fn javascript(&self, func: &FunctionCode, inputs: FunctionInputs) -> Result<FunctionOutputs> {
         let code = func.str_source();
         let ducc = Ducc::new();
-        let func: Value = ducc.compile(code, None).unwrap().call(()).unwrap();
-        let func = if let Value::Function(f) = func {
-            f
-        } else {
-            unreachable!();
-        };
-        let result: f64 = func.call(()).unwrap();
-        println!("Result!! {}", result);
-        Ok(FunctionOutputs::None)
+        let compilation = ducc.compile(code, None);
+        match compilation {
+            Ok(compiled_code) => {
+                let func: Value = compiled_code.call(()).unwrap();
+                let func = if let Value::Function(f) = func {
+                    f
+                } else {
+                    unreachable!();
+                };
+                let result = match inputs {
+                    FunctionInputs::Http { headers, body } => {
+                        let result: DuccResult<HashMap<String, Value>> = func.call((headers, body));
+                        match result {
+                            Ok(return_values) => {
+                                let ducc = Ducc::new();
+
+                                let body: String = return_values.get("body")
+                                    .and_then(|v| String::from_value(v.clone(), &ducc).ok())
+                                    .unwrap_or("".to_owned());
+
+                                let headers: HashMap<String, String> = return_values.get("headers")
+                                    .and_then(|v| HashMap::from_value(v.clone(), &ducc).ok())
+                                    .unwrap_or_default();
+
+                                let status: u16 = return_values.get("status")
+                                    .and_then(|v| u16::from_value(v.clone(), &ducc).ok())
+                                    .unwrap_or(403); // http status code for BadRequest
+                                FunctionOutputs::Http{ headers, body, status_code: status }
+                            },
+                            _ => FunctionOutputs::None
+                        }
+                    },
+                    _ => FunctionOutputs::None
+                };
+                
+                Ok(result)
+            }
+            Err(compiler_error) => {
+                let result = match compiler_error.kind {
+                    ErrorKind::RuntimeError { code: _, name } => {
+                        ExecutionError::CompilerError(name, compiler_error.context)
+                    }
+                    _ => ExecutionError::GeneralExecutionError(compiler_error.context),
+                };
+                Err(result)
+            }
+        }
     }
 }
 
 impl JavaScript for Runtime {}
-
-// pub struct DuccJS {
-// }
-
-// impl Compiler for DuccJS {
-//     type CompilerCode = CompiledJS;
-//     fn compile(&self, code: &str) -> Result<Box<Self::CompilerCode>> {
-//         Ok(Box::new(CompiledJS::new(code.to_owned())))
-//     }
-// }
-
-// impl Executor for DuccJS {
-//     type ByteCodeType = CompiledJS;
-//     fn run(&self, func: Arc<Box<Self::ByteCodeType>>, inputs: Option<FunctionInputs>) -> Result<FunctionOutputs> {
-//         let code = func.executable();
-//         let ducc = Ducc::new();
-//         let func: Value = ducc.compile(code, None).unwrap().call(()).unwrap();
-//         let func = if let Value::Function(f) = func { f } else { unreachable!(); };
-//         let result: f64 = func.call(()).unwrap();
-//         println!("Result!! {}", result);
-//         Ok(FunctionOutputs::None)
-//     }
-// }
-
-// pub struct CompiledJS {
-//     code: String,
-// }
-
-// impl CompiledJS {
-//     pub fn new(code: String) -> CompiledJS {
-//         CompiledJS {
-//             code
-//         }
-//     }
-// }

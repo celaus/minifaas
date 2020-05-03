@@ -6,8 +6,12 @@ const editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
   lineWrapping: true,
 });
 
-function selectToShow(name, code, trigger) {
+async function selectToShow(name) {
   document.getElementById("fn-name").value = name;
+  let response = await (await fetch(`/f/impl/${name}`)).json();
+  let code = response.code;
+  let trigger = "Http trigger (GET)";
+
   const options = Array.apply(null, document.getElementById("fn-trigger-select").options);
   const selected_trigger = options.find(v => v.value == trigger);
 

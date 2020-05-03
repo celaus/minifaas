@@ -1,32 +1,27 @@
 mod javascript;
-use crate::errors::LanguageRuntimeError;
 pub use javascript::JavaScript;
+use minifaas_common::{FunctionCode, errors::ExecutionError};
 
-type Result<T> = std::result::Result<T, LanguageRuntimeError>;
+type Result<T> = std::result::Result<T, ExecutionError>;
 
 pub enum SupportedToolchains {
-  JavaScript,
+    JavaScript,
 }
 
 pub struct Runtime {}
-
-pub struct FunctionCode {
-  code: String,
-}
-
-impl FunctionCode {
-  pub fn new(code: String) -> FunctionCode {
-    FunctionCode { code }
-  }
+impl Runtime {
+    pub fn new() -> Self {
+        Runtime {}
+    }
 }
 
 pub trait CompiledCode {}
 pub trait SourceCode {
-  fn str_source(&self) -> &str;
+    fn str_source(&self) -> &str;
 }
 
 impl SourceCode for FunctionCode {
-  fn str_source(&self) -> &str {
-    &self.code
-  }
+    fn str_source(&self) -> &str {
+        &self.code
+    }
 }

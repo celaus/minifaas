@@ -1,129 +1,122 @@
 use actix_files as fs;
 use actix_web::{
-    error::ErrorInternalServerError, middleware, web, App, HttpResponse, HttpServer, Responder,
+    error::ErrorBadRequest, error::ErrorInternalServerError, http::header::HeaderName,
+    http::header::HeaderValue, http::StatusCode, middleware, web, App, HttpResponse, HttpServer,
+    Responder,
 };
 use askama::Template;
 use chrono::prelude::*;
+use crossbeam_channel::{bounded, Sender};
+use minifaas_common::*;
+use minifaas_rt::{create_runtime, RuntimeConfiguration};
 use serde::{Deserialize, Serialize};
 use serde_json::{Result, Value};
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::env;
-use std::sync::Mutex;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
-
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "lang")]
-enum ProgrammingLanguage {
-    JavaScript,
-}
-
-impl std::fmt::Display for ProgrammingLanguage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match &self {
-            ProgrammingLanguage::JavaScript => "JavaScript".to_owned(),
-        };
-        write!(f, "{}", text)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "trigger")]
-enum Trigger {
-    Http { method: String },
-}
-
-impl std::fmt::Display for Trigger {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match &self {
-            Trigger::Http { method } => format!("Http trigger ({})", method),
-        };
-        write!(f, "{}", text)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct UserFunctionDeclaration {
-    id: String,
-    name: String,
-    code: String,
-    #[serde(flatten)]
-    trigger: Trigger,
-    #[serde(flatten)]
-    language: ProgrammingLanguage,
-    timestamp: DateTime<Utc>,
-}
 
 #[derive(Template)]
 #[template(path = "index.html")]
-struct IndexViewModel<'a> {
-    functions: Vec<&'a Box<UserFunctionDeclaration>>,
+struct IndexViewModel {
+    functions: Vec<String>,
     triggers: Vec<Trigger>,
 }
 
-// async fn call_function(
-//     storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
-//     name: web::Path<String>,
-// ) -> HttpResponse {
-//     let name = name.to_string();
-//     if let Some(func) = (*storage).lock().unwrap().get(&name) {
-//         let svc = javascript::DuccJS {};
-//         let compiled = svc.compile(&func.code).unwrap();
-//         svc.run(compiled, None);
-//         HttpResponse::Ok().finish()
-//     } else {
-//         HttpResponse::BadRequest().finish()
-//     }
-// }
 async fn call_function(
-    storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
+    storage: web::Data<FaaSDataStore>,
+    runtime: web::Data<Sender<RuntimeRequest>>,
     name: web::Path<String>,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let name = name.to_string();
-    HttpResponse::Ok().finish()
-
-    //     if let Some(func) = (*storage).lock().unwrap().get(&name) {
-    //         let svc = javascript::DuccJS {};
-    //         let compiled = svc.compile(&func.code).unwrap();
-    //         svc.run(compiled, None);
-    //         HttpResponse::Ok().finish()
-    //     } else {
-    //         HttpResponse::BadRequest().finish()
-    //     }
+    if let Some(user_func) = storage.as_ref().get(&name) {
+        let timeout = Duration::from_secs(300); // 5 minutes timeout
+        let (tx, rx) = bounded::<RuntimeResponse>(1); // create a channel for a single message
+        let _ = runtime.as_ref().send(RuntimeRequest::FunctionCall(
+            user_func,
+            FunctionInputs::Http {
+                headers: HashMap::<String, String>::new(),
+                body: "".to_owned(),
+            },
+            tx,
+        ));
+        let func_output = web::block(move || {
+            let result = rx.recv_timeout(timeout);
+            drop(rx);
+            result
+        })
+        .await
+        .unwrap();
+        match func_output {
+            RuntimeResponse::FunctionResponse(resp) => {
+                if let FunctionOutputs::Http {
+                    headers,
+                    body,
+                    status_code,
+                } = resp
+                {
+                    let mut builder = HttpResponse::build(
+                        StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_REQUEST),
+                    );
+                    let mut response = headers.iter().fold(&mut builder, |out, (n, v)| {
+                        let val = HeaderValue::from_str(v).ok();
+                        let name = HeaderName::from_lowercase(n.to_lowercase().as_bytes()).ok();
+                        if val.is_some() && name.is_some() {
+                            out.header(name.unwrap(), val.unwrap())
+                        } else {
+                            out
+                        }
+                    });
+                    Ok(response.body(body))
+                } else {
+                    Err(ErrorBadRequest("Weird response"))
+                }
+            }
+            RuntimeResponse::FunctionRuntimeUnavailable(lang) => Err(ErrorBadRequest(lang)),
+            RuntimeResponse::FunctionExecutionError { message, context } => {
+                Err(ErrorBadRequest(context.join("\n")))
+            } // <- find a good way to return execution errors (stack traces etc)>
+            _ => Err(ErrorInternalServerError("Some error message")),
+        }
+    } else {
+        Err(ErrorInternalServerError("Some error message"))
+    }
 }
 
 async fn add_new_function(
-    storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
+    storage: web::Data<FaaSDataStore>,
     item: web::Json<UserFunctionDeclaration>,
 ) -> HttpResponse {
     let name = item.name.clone();
-    (*storage)
-        .lock()
-        .unwrap()
-        .insert(name, Box::new(item.into_inner()));
+    storage.as_ref().set(name, item.into_inner().code);
     HttpResponse::Ok().finish()
 }
 
-async fn list_all_functions(
-    storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
-) -> HttpResponse {
-    let mut functions = vec![];
-    let raw = (*storage).lock().unwrap();
-    for function in raw.values() {
-        functions.push(function.clone())
+async fn get_function_code(
+    storage: web::Data<FaaSDataStore>,
+    name: web::Path<String>,
+) -> actix_web::Result<HttpResponse> {
+    let name = name.to_string();
+    if let Some(user_func) = storage.as_ref().get(&name) {
+        Ok(HttpResponse::Ok().json(user_func))
+    } else {
+        Err(actix_web::error::ErrorNotFound(format!(
+            "{} not found",
+            name
+        )))
     }
-    HttpResponse::Ok().json(functions)
+}
+
+async fn list_all_functions(storage: web::Data<FaaSDataStore>) -> HttpResponse {
+    HttpResponse::Ok().json(storage.as_ref().values())
 }
 
 #[actix_web::get("/")]
-async fn index(
-    storage: web::Data<Mutex<HashMap<String, Box<UserFunctionDeclaration>>>>,
-) -> actix_web::Result<HttpResponse> {
-    let mut functions = vec![];
-    let raw = (*storage).lock().unwrap();
-    for function in raw.values() {
-        functions.push(function.clone())
-    }
+async fn index(storage: web::Data<FaaSDataStore>) -> actix_web::Result<HttpResponse> {
+    let functions = storage.as_ref().keys();
     IndexViewModel {
         functions,
         triggers: vec![Trigger::Http {
@@ -145,26 +138,21 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     println!(
         "serialized {}",
-        serde_json::to_string_pretty(&UserFunctionDeclaration {
-            id: "id..".to_owned(),
-            name: "abc".to_owned(),
-            code: "more abc".to_owned(),
-            trigger: Trigger::Http {
-                method: "GET".to_owned()
-            },
-            language: ProgrammingLanguage::JavaScript,
-            timestamp: Utc::now()
-        })
-        .unwrap()
+        serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()
     );
 
-    let mut functions_db: HashMap<String, Box<UserFunctionDeclaration>> = HashMap::new();
-    let storage = web::Data::new(Mutex::new(functions_db));
+    let storage = create_or_load_storage(DataStoreConfig::new("functions.db"))?;
 
+    let runtime = create_runtime(RuntimeConfiguration::new(10));
+    //let mut functions_db: HashMap<String, Box<UserFunctionDeclaration>> = HashMap::new();
+    //let storage = web::Data::new(Mutex::new(functions_db));
+    let storage = web::Data::new(storage);
+    let runtime = web::Data::new(runtime);
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
             .app_data(storage.clone()) // add shared state
+            .app_data(runtime.clone())
             .data(web::JsonConfig::default()) // <- limit size of the payload (global configuration)
             .service(fs::Files::new("/assets", "./minifaas-web/static").show_files_listing())
             .service(
@@ -172,7 +160,11 @@ async fn main() -> std::io::Result<()> {
                     .service(web::resource("/f").route(web::put().to(add_new_function)))
                     .service(web::resource("/functions").route(web::get().to(list_all_functions))),
             )
-            .service(web::scope("/f/").service(web::resource("/call/{name}").to(call_function)))
+            .service(
+                web::scope("/f/")
+                    .service(web::resource("/call/{name}").to(call_function))
+                    .service(web::resource("/impl/{name}").route(web::get().to(get_function_code))),
+            )
             .service(index)
     })
     .bind("127.0.0.1:8081")?

@@ -3,4 +3,5 @@
 members = [
     "minifaas-rt",
     "minifaas-web",
+    "minifaas-common",
 ]
