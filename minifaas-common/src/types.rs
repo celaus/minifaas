@@ -72,7 +72,6 @@ pub struct UserFunctionDeclaration {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct FunctionCode {
     pub code: String,
-    #[serde(flatten)]
     pub language: ProgrammingLanguage,
 }
 

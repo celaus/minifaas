@@ -2,26 +2,34 @@ pub mod languages;
 pub mod traits;
 
 use crate::languages::Runtime;
-use crossbeam_channel::{unbounded as channel, Receiver, Sender};
-use hashbrown::{HashMap, HashSet};
+use crossbeam_channel::{unbounded as channel, Sender};
 use languages::JavaScript;
 use minifaas_common::*;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+///
+/// Configuration for the Function runtime
+/// 
 pub struct RuntimeConfiguration {
     num_threads: usize,
 }
 
 impl RuntimeConfiguration {
+
+    ///
+    /// New runtime config
+    /// 
     pub fn new(num_threads: usize) -> Self {
         RuntimeConfiguration { num_threads }
     }
 }
 
+
+///
+/// Execute a Function in a thread and send the response via the provided `Sender<>`
+/// 
 fn execute_function(
     inputs: FunctionInputs,
     response_channel: Sender<RuntimeResponse>,
@@ -29,12 +37,10 @@ fn execute_function(
     func: Arc<Box<FunctionCode>>,
 ) {
     let outputs = match func.language {
-        ProgrammingLanguage::JavaScript => {
-            match runtime.javascript(&func, inputs) {
-                Ok(r) => RuntimeResponse::FunctionResponse(r),
-                Err(e) => RuntimeResponse::from(e)
-            }
-        }
+        ProgrammingLanguage::JavaScript => match runtime.javascript(&func, inputs) {
+            Ok(r) => RuntimeResponse::FunctionResponse(r),
+            Err(e) => RuntimeResponse::from(e),
+        },
         _ => RuntimeResponse::FunctionRuntimeUnavailable(func.language.clone()),
     };
     // the channel could be closed on the other side. we don't care though
@@ -42,9 +48,10 @@ fn execute_function(
     drop(response_channel);
 }
 
-pub fn create_runtime(
-    config: RuntimeConfiguration,
-) -> Sender<RuntimeRequest> {
+///
+/// Creates a runtime based on the configuration and returns a command channel to invoke things with.
+///
+pub fn create_runtime(config: RuntimeConfiguration) -> Sender<RuntimeRequest> {
     let (input_channel_sender, input_channel_receiver) = channel::<RuntimeRequest>();
 
     let timeout = Duration::from_secs(1);
@@ -54,7 +61,7 @@ pub fn create_runtime(
         let worker_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(config.num_threads)
             .build()
-            .unwrap();
+            .expect("Couldn't create runtime threadpool");
 
         let runtime = Arc::new(Runtime::new());
 

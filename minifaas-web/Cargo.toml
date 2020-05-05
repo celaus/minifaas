@@ -19,3 +19,4 @@ askama = "0.9"
 actix-files = "0.2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 crossbeam-channel = "0.4"
+futures = "0.3"

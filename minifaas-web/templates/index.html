@@ -24,7 +24,7 @@
             <div class="col-lg-4">
                 {% for func in functions %}
                 <div id="fn-{{ func }}" class="row border-bottom mt-3 mb-3">
-                    <div class="col-lg-10">
+                    <div class="col-md-8">
                         <div class="row">
                             <div class="col-lg-12">
                                 <a href="#"
@@ -32,11 +32,14 @@
                             </div>
                         </div>
                         <div class="row text-muted">
-                            <div class="col-lg-12">
+                            <div class="col-sm-12">
                                 JavaScript, likely</div>
                         </div>
                     </div>
-                    <div class="col-lg-2">
+                    <div class="col-md-2">
+                        <button onclick="removeFunction('{{ func }}')" type="button" class="btn btn-danger">-</button>
+                    </div>
+                    <div class="col-md-2">
                         <button onclick="callFunction('{{ func }}')" type="button" class="btn btn-primary">Call</button>
                     </div>
                 </div>

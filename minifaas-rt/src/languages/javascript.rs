@@ -3,7 +3,16 @@ use ducc::{Ducc, ErrorKind, Result as DuccResult, Value, FromValue};
 use minifaas_common::{errors::ExecutionError, FunctionInputs, FunctionOutputs};
 use std::collections::HashMap;
 
+
+///
+/// A JavaScript compiler and runtime based on Duktape via a Rust binding. The trait provides a function `javascript` to the implementing struct which compiles and runs code inside a prepared environment. 
+/// The code's required output depends on its input - which in turn depends on the trigger. Http provides headers and body as an input and wants to see body, headers, and status code as return values. Other triggers will have similar requirements and all of them are implemented here. 
+/// 
 pub trait JavaScript {
+
+    /// 
+    /// Compile and run the provided code inside a JavaScript environment. Add inputs to the function and check outputs for required return values. 
+    /// 
     fn javascript(&self, func: &FunctionCode, inputs: FunctionInputs) -> Result<FunctionOutputs> {
         let code = func.str_source();
         let ducc = Ducc::new();
@@ -17,8 +26,8 @@ pub trait JavaScript {
                     unreachable!();
                 };
                 let result = match inputs {
-                    FunctionInputs::Http { headers, body } => {
-                        let result: DuccResult<HashMap<String, Value>> = func.call((headers, body));
+                    FunctionInputs::Http { params, headers, body } => {
+                        let result: DuccResult<HashMap<String, Value>> = func.call((params, headers, body));
                         match result {
                             Ok(return_values) => {
                                 let ducc = Ducc::new();
@@ -27,7 +36,7 @@ pub trait JavaScript {
                                     .and_then(|v| String::from_value(v.clone(), &ducc).ok())
                                     .unwrap_or("".to_owned());
 
-                                let headers: HashMap<String, String> = return_values.get("headers")
+                                let headers: HashMap<String, Option<String>> = return_values.get("headers")
                                     .and_then(|v| HashMap::from_value(v.clone(), &ducc).ok())
                                     .unwrap_or_default();
 

@@ -1,23 +1,27 @@
+mod utils;
+
 use actix_files as fs;
 use actix_web::{
     error::ErrorBadRequest, error::ErrorInternalServerError, http::header::HeaderName,
-    http::header::HeaderValue, http::StatusCode, middleware, web, App, HttpResponse, HttpServer,
-    Responder,
+    http::header::HeaderValue, http::StatusCode, middleware, web, web::Payload, App, HttpRequest,
+    HttpResponse, HttpServer,
 };
 use askama::Template;
 use chrono::prelude::*;
 use crossbeam_channel::{bounded, Sender};
+use futures::StreamExt;
 use minifaas_common::*;
 use minifaas_rt::{create_runtime, RuntimeConfiguration};
-use serde::{Deserialize, Serialize};
-use serde_json::{Result, Value};
-use std::boxed::Box;
 use std::collections::HashMap;
 use std::env;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
+
+const MAX_RUNTIME_SECS: u64 = 300;
+const NO_RUNTIME_THREADS: usize = 10;
 
 #[derive(Template)]
 #[template(path = "index.html")]
@@ -30,16 +34,30 @@ async fn call_function(
     storage: web::Data<FaaSDataStore>,
     runtime: web::Data<Sender<RuntimeRequest>>,
     name: web::Path<String>,
+    req: HttpRequest,
+    mut body: Payload,
 ) -> actix_web::Result<HttpResponse> {
     let name = name.to_string();
+
     if let Some(user_func) = storage.as_ref().get(&name) {
-        let timeout = Duration::from_secs(300); // 5 minutes timeout
+        let timeout = Duration::from_secs(MAX_RUNTIME_SECS); // 5 minutes timeout
         let (tx, rx) = bounded::<RuntimeResponse>(1); // create a channel for a single message
+
+        let query_params = utils::query_to_map(req.query_string()).await;
+        let req_headers = utils::headers_to_map(req.headers()).await;
+        let mut bytes = web::BytesMut::new();
+        while let Some(item) = body.0.next().await {
+            let item = item?;
+            println!("Chunk: {:?}", &item);
+            bytes.extend_from_slice(&item);
+        }
+
         let _ = runtime.as_ref().send(RuntimeRequest::FunctionCall(
             user_func,
             FunctionInputs::Http {
-                headers: HashMap::<String, String>::new(),
-                body: "".to_owned(),
+                params: query_params,
+                body: bytes.to_vec(),
+                headers: req_headers,
             },
             tx,
         ));
@@ -62,7 +80,7 @@ async fn call_function(
                         StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_REQUEST),
                     );
                     let mut response = headers.iter().fold(&mut builder, |out, (n, v)| {
-                        let val = HeaderValue::from_str(v).ok();
+                        let val = HeaderValue::from_str(v.as_ref().unwrap_or(&"".to_owned())).ok();
                         let name = HeaderName::from_lowercase(n.to_lowercase().as_bytes()).ok();
                         if val.is_some() && name.is_some() {
                             out.header(name.unwrap(), val.unwrap())
@@ -72,7 +90,7 @@ async fn call_function(
                     });
                     Ok(response.body(body))
                 } else {
-                    Err(ErrorBadRequest("Weird response"))
+                    Err(ErrorBadRequest(format!("{:?}", resp)))
                 }
             }
             RuntimeResponse::FunctionRuntimeUnavailable(lang) => Err(ErrorBadRequest(lang)),
@@ -90,9 +108,22 @@ async fn add_new_function(
     storage: web::Data<FaaSDataStore>,
     item: web::Json<UserFunctionDeclaration>,
 ) -> HttpResponse {
-    let name = item.name.clone();
-    storage.as_ref().set(name, item.into_inner().code);
-    HttpResponse::Ok().finish()
+    let name: String = item.name.clone();
+    if !name.trim().is_empty() {
+        storage.as_ref().set(name, item.into_inner().code);
+        HttpResponse::Ok().finish()
+    } else {
+        HttpResponse::BadRequest().body(format!("Name '{}' is invalid", name))
+    }
+}
+
+async fn remove_function(storage: web::Data<FaaSDataStore>, name: web::Path<String>) -> HttpResponse {
+    if !name.trim().is_empty() {
+        storage.as_ref().delete(&name);
+        HttpResponse::Ok().finish()
+    } else {
+        HttpResponse::BadRequest().body(format!("Name '{}' is invalid", name))
+    }
 }
 
 async fn get_function_code(
@@ -141,23 +172,24 @@ async fn main() -> std::io::Result<()> {
         serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()
     );
 
-    let storage = create_or_load_storage(DataStoreConfig::new("functions.db"))?;
+    // set up connections to aux projects
+    let _storage = create_or_load_storage(DataStoreConfig::new("functions.db", true))?;
+    let runtime_channel = create_runtime(RuntimeConfiguration::new(NO_RUNTIME_THREADS));
 
-    let runtime = create_runtime(RuntimeConfiguration::new(10));
-    //let mut functions_db: HashMap<String, Box<UserFunctionDeclaration>> = HashMap::new();
-    //let storage = web::Data::new(Mutex::new(functions_db));
-    let storage = web::Data::new(storage);
-    let runtime = web::Data::new(runtime);
-    HttpServer::new(move || {
+    let storage = web::Data::new(_storage);
+    let runtime = web::Data::new(runtime_channel.clone());
+    // start "frontend" web app
+    let server = HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
             .app_data(storage.clone()) // add shared state
             .app_data(runtime.clone())
             .data(web::JsonConfig::default()) // <- limit size of the payload (global configuration)
-            .service(fs::Files::new("/assets", "./minifaas-web/static").show_files_listing())
+            .service(fs::Files::new("/assets", "./minifaas-web/static"))
             .service(
                 web::scope("/api/v1/")
                     .service(web::resource("/f").route(web::put().to(add_new_function)))
+                    .service(web::resource("/f/{name}").route(web::delete().to(remove_function)))
                     .service(web::resource("/functions").route(web::get().to(list_all_functions))),
             )
             .service(
@@ -169,5 +201,11 @@ async fn main() -> std::io::Result<()> {
     })
     .bind("127.0.0.1:8081")?
     .run()
-    .await
+    .await;
+    // stop runtime gracefully
+    let _ = runtime_channel
+        .send(RuntimeRequest::Shutdown)
+        .and_then(|_| Ok(std::thread::sleep(Duration::from_secs(5))));
+
+    server
 }

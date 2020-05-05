@@ -22,7 +22,7 @@ async function selectToShow(name) {
   return true;
 }
 
-function saveFunction() {
+async function saveFunction() {
   let name = document.getElementById("fn-name").value;
   let code = editor.getValue();
   let payload = {
@@ -31,11 +31,10 @@ function saveFunction() {
     "code": code,
     "trigger": "Http",
     "method": "GET",
-    "lang": "JavaScript",
+    "language": {"lang": "JavaScript"},
     "timestamp": new Date().toISOString()
   };
-  console.log(payload);
-  fetch(API_URL, {
+  await fetch(API_URL, {
     method: 'put',
     headers: {
       "Content-type": "application/json; charset=UTF-8"
@@ -44,6 +43,27 @@ function saveFunction() {
   }).then(_ => location.reload())
 }
 
+async function removeFunction(name) {
+  await fetch(`${API_URL}/${name}`, {
+    method: 'delete'
+  }).then(_ => location.reload())
+}
+
 async function callFunction(name) {
-  let response = await fetch(`/f/call/${name}`);
+  let payload = {
+    "id": name,
+    "name": name,
+    "code": "code",
+    "trigger": "Http",
+    "method": "GET",
+    "language": {"lang": "JavaScript"},
+    "timestamp": new Date().toISOString()
+  };
+  console.log(payload);
+  console.log(await fetch(`/f/call/${name}`, {
+    method: 'POST',
+    headers: {
+      "Content-type": "application/json; charset=UTF-8"
+    },
+    body: JSON.stringify(payload)}));
 }
