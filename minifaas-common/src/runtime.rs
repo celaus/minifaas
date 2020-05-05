@@ -86,7 +86,7 @@ pub enum FunctionInputs {
   /// Available fields for a HTTP trigger
   /// 
   Http {
-    params: HashMap<String, Option<String>>,
+    params: HashMap<String, Option<Vec<String>>>,
     headers: HashMap<String, Option<String>>,
     body: Vec<u8>,
   },

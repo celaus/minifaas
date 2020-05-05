@@ -7,16 +7,11 @@ use actix_web::{
     HttpResponse, HttpServer,
 };
 use askama::Template;
-use chrono::prelude::*;
 use crossbeam_channel::{bounded, Sender};
 use futures::StreamExt;
 use minifaas_common::*;
 use minifaas_rt::{create_runtime, RuntimeConfiguration};
-use std::collections::HashMap;
 use std::env;
-use std::fs::File;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
