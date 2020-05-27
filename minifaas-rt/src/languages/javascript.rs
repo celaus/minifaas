@@ -26,8 +26,11 @@ pub trait JavaScript {
                     unreachable!();
                 };
                 let result = match inputs {
+
+                    /// HTTP triggered, thus a HTTP return value
                     FunctionInputs::Http { params, headers, body } => {
                         let result: DuccResult<HashMap<String, Value>> = func.call((params, headers, body));
+
                         match result {
                             Ok(return_values) => {
                                 let ducc = Ducc::new();

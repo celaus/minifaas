@@ -1,3 +1,5 @@
+mod config;
+mod errors;
 mod utils;
 
 use actix_files as fs;
@@ -7,11 +9,14 @@ use actix_web::{
     HttpResponse, HttpServer,
 };
 use askama::Template;
+use clap::{App as ClApp, Arg};
+use config::{read_config, Settings};
 use crossbeam_channel::{bounded, Sender};
 use futures::StreamExt;
+use log::{error, debug, info, trace, warn};
 use minifaas_common::*;
 use minifaas_rt::{create_runtime, RuntimeConfiguration};
-use std::env;
+use std::fs::File;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -43,7 +48,7 @@ async fn call_function(
         let mut bytes = web::BytesMut::new();
         while let Some(item) = body.0.next().await {
             let item = item?;
-            println!("Chunk: {:?}", &item);
+            debug!("Chunk: {:?}", &item);
             bytes.extend_from_slice(&item);
         }
 
@@ -56,6 +61,7 @@ async fn call_function(
             },
             tx,
         ));
+
         let func_output = web::block(move || {
             let result = rx.recv_timeout(timeout);
             drop(rx);
@@ -63,6 +69,7 @@ async fn call_function(
         })
         .await
         .unwrap();
+        
         match func_output {
             RuntimeResponse::FunctionResponse(resp) => {
                 if let FunctionOutputs::Http {
@@ -112,7 +119,10 @@ async fn add_new_function(
     }
 }
 
-async fn remove_function(storage: web::Data<FaaSDataStore>, name: web::Path<String>) -> HttpResponse {
+async fn remove_function(
+    storage: web::Data<FaaSDataStore>,
+    name: web::Path<String>,
+) -> HttpResponse {
     if !name.trim().is_empty() {
         storage.as_ref().delete(&name);
         HttpResponse::Ok().finish()
@@ -160,9 +170,40 @@ async fn index(storage: web::Data<FaaSDataStore>) -> actix_web::Result<HttpRespo
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var("RUST_LOG", "actix_web=debug");
-    env_logger::init();
-    println!(
+    let matches = ClApp::new("MiniFaaS")
+        .version("0.1.0")
+        .author("Claus Matzinger. <claus.matzinger+kb@gmail.com>")
+        .about("A no-fluff Function-as-a-Service runtime for home use.")
+        .arg(
+            Arg::with_name("config")
+                .short("c")
+                .long("config")
+                .help("Sets a custom config file [default: config.toml]")
+                .value_name("config.toml")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("logging")
+                .short("l")
+                .long("logging-conf")
+                .value_name("logging.yml")
+                .takes_value(true)
+                .help("Sets the logging configuration [default: logging.yml]"),
+        )
+        .get_matches();
+
+    let config_filename = matches.value_of("config").unwrap_or("config.toml");
+    let logging_filename = matches.value_of("logging").unwrap_or("logging.yml");
+    info!(
+        "Using configuration file '{}' and logging config '{}'",
+        config_filename, logging_filename
+    );
+
+    log4rs::init_file(logging_filename, Default::default()).expect("Could not initialize log4rs.");
+    let mut f = File::open(config_filename).expect("Could not open config file.");
+    let settings: Settings = read_config(&mut f).expect("Could not read config file.");
+
+    debug!(
         "serialized {}",
         serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()
     );
@@ -194,7 +235,7 @@ async fn main() -> std::io::Result<()> {
             )
             .service(index)
     })
-    .bind("127.0.0.1:8081")?
+    .bind(&settings.server.endpoint)?
     .run()
     .await;
     // stop runtime gracefully

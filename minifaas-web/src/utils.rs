@@ -49,37 +49,40 @@ pub async fn headers_to_map(headers: &HeaderMap) -> HashMap<String, Option<Strin
   })
 }
 
+
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-  use super::*;
+    use super::*;  
 
-  macro_rules! aw {
-    ($e:expr) => {
-      tokio_test::block_on($e)
-    };
-  }
-
-  #[test]
-  fn test_query_to_map__valid_scalars() {
-    let query_params = aw!(query_to_map("a=1&b=x"));
+  #[actix_rt::test]
+  async fn test_query_to_map__valid_scalars_alt() {
+    let query_params = query_to_map("a=1&b=x").await;
     assert_eq!(query_params["a"], Some(vec!["1".to_owned()]));
     assert_eq!(query_params["b"], Some(vec!["x".to_owned()]));
   }
-  #[test]
-  fn test_query_to_map__lists() {
-    let query_params = aw!(query_to_map("a=1&a=2&a=3"));
+
+  #[actix_rt::test]
+  async fn test_query_to_map__valid_scalars() {
+    let query_params = query_to_map("a=1&b=x").await;
+    assert_eq!(query_params["a"], Some(vec!["1".to_owned()]));
+    assert_eq!(query_params["b"], Some(vec!["x".to_owned()]));
+  }
+
+  #[actix_rt::test]
+  async fn test_query_to_map__lists() {
+    let query_params = query_to_map("a=1&a=2&a=3").await;
     assert_eq!(
       query_params["a"],
       Some(vec!["1".to_owned(), "2".to_owned(), "3".to_owned()])
     );
   }
 
-  #[test]
-  fn test_query_to_map__weird_values() {
-    let query_params = aw!(query_to_map(
+  #[actix_rt::test]
+  async fn test_query_to_map__weird_values() {
+    let query_params = query_to_map(
       "a=&a=2&a=3&b=a%20b&c=+++++{\"hello\": \"world\"}"
-    ));
+    ).await;
     assert_eq!(
       query_params["a"],
       Some(vec!["".to_owned(), "2".to_owned(), "3".to_owned()])

@@ -60,6 +60,9 @@ impl std::fmt::Display for Trigger {
     }
 }
 
+/// 
+/// A user's declaration of a function. This is intended to be used as data transmission object.
+/// 
 #[derive(Serialize, Deserialize, Default)]
 pub struct UserFunctionDeclaration {
     pub name: String,
@@ -69,6 +72,9 @@ pub struct UserFunctionDeclaration {
     pub trigger: Trigger,
 }
 
+///
+/// Representation of a Function in code. 
+/// 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct FunctionCode {
     pub code: String,

@@ -1,5 +1,6 @@
 pub use crate::types::*;
 use hashbrown::HashMap;
+use log::{debug, error, info, trace, warn};
 use std::boxed::Box;
 use std::fs::File;
 use std::io::prelude::*;
@@ -101,6 +102,20 @@ impl FaaSDataStore {
             .unwrap_or_default()
     }
 
+    pub fn len(&self) -> usize {
+        self.store
+            .read()
+            .map(|reader| reader.len())
+            .unwrap_or_default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.store
+            .read()
+            .map(|reader| reader.is_empty())
+            .unwrap_or_default()
+    }
+
     fn serialize(&self, mut writer: impl Write) -> std::io::Result<()> {
         let db = &*(self.store.read().unwrap());
         let buf = rmp_serde::to_vec(db).expect("Couldn't serialize data store");
@@ -114,6 +129,10 @@ impl FaaSDataStore {
 
     pub fn from_path<P: Into<PathBuf>>(path: P) -> std::io::Result<Self> {
         let p = path.into();
+        info!(
+            "Reading functions from store at '{}'",
+            p.to_str().unwrap_or_default()
+        );
         let file = File::open(&p).or_else(|_| File::create(&p))?;
         let buf_reader = BufReader::new(file);
         let store = rmp_serde::from_read(buf_reader).unwrap_or_default();

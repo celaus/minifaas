@@ -8,6 +8,7 @@ use minifaas_common::*;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use log::{error, debug, info, trace, warn};
 
 ///
 /// Configuration for the Function runtime
@@ -36,6 +37,7 @@ fn execute_function(
     runtime: Arc<Runtime>,
     func: Arc<Box<FunctionCode>>,
 ) {
+    info!("Executing function {:?} with inputs {:?}", func, inputs);
     let outputs = match func.language {
         ProgrammingLanguage::JavaScript => match runtime.javascript(&func, inputs) {
             Ok(r) => RuntimeResponse::FunctionResponse(r),
@@ -64,7 +66,7 @@ pub fn create_runtime(config: RuntimeConfiguration) -> Sender<RuntimeRequest> {
             .expect("Couldn't create runtime threadpool");
 
         let runtime = Arc::new(Runtime::new());
-
+        info!("Language runtime initialized with {} threads and accepting work", config.num_threads);
         while !stop {
             if let Ok(pkg) = input_channel_receiver.recv_timeout(timeout) {
                 match pkg {
