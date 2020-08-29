@@ -2,7 +2,7 @@ use crate::languages::{FunctionCode, Result, Runtime, SourceCode};
 use ducc::{Ducc, ErrorKind, Result as DuccResult, Value, FromValue};
 use minifaas_common::{errors::ExecutionError, FunctionInputs, FunctionOutputs};
 use std::collections::HashMap;
-
+use deno_core::v8::Script;
 
 ///
 /// A JavaScript compiler and runtime based on Duktape via a Rust binding. The trait provides a function `javascript` to the implementing struct which compiles and runs code inside a prepared environment. 
@@ -15,7 +15,7 @@ pub trait JavaScript {
     /// 
     fn javascript(&self, func: &FunctionCode, inputs: FunctionInputs) -> Result<FunctionOutputs> {
         let code = func.str_source();
-        let ducc = Ducc::new();
+        let ducc =  ::new();
         let compilation = ducc.compile(code, None);
         match compilation {
             Ok(compiled_code) => {

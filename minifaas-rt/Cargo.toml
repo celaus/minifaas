@@ -17,3 +17,5 @@ minifaas-common = { path = "../minifaas-common" }
 crossbeam-channel = "0.4"
 hashbrown = { version = "0.7", features = ["serde"] }
 log = "0.4"
+
+deno_core ="*"
