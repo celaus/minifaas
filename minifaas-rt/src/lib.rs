@@ -10,6 +10,12 @@ use std::thread;
 use std::time::Duration;
 use log::{error, debug, info, trace, warn};
 
+
+/// Move this crate to actors:
+/// Management actor that manages access to the function db? 
+/// Runtime actors: per each language one actor? 
+/// 
+
 ///
 /// Configuration for the Function runtime
 /// 
