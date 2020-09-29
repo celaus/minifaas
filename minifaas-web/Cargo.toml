@@ -9,22 +9,21 @@ edition = "2018"
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-tide = {git ="https://github.com/http-rs/tide.git"}
+tide = "0.13"
 http-types = "*"
 async-std = { version = "1.6", features = ["attributes"] }
 chrono = { version = "0.4", features = ["serde"] }
 minifaas-common = { path = "../minifaas-common" }
 minifaas-rt = { path = "../minifaas-rt" }
-askama = "0.9"
+askama = "0.10"
 uuid = { version = "0.8", features = ["serde", "v4"] }
-crossbeam-channel = "0.4"
 regex = "1"
 clap = "2"
 toml = "0.5"
 log = "0"
 log4rs = "0"
 futures-util  = "0.3.5"
-xactor = "0.6"
+anyhow = "1.0"
 
 [dev-dependencies]
-tokio-test = "0.2.1"
+minifaas-test = { path = "../minifaas-test" }

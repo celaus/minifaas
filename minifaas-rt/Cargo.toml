@@ -10,12 +10,24 @@ name = "minifaas_rt"
 
 [dependencies]
 ducc = "0"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-rayon = "1.3"
+rayon = "1.4"
+anyhow ="1.0"
 minifaas-common = { path = "../minifaas-common" }
-crossbeam-channel = "0.4"
-hashbrown = { version = "0.7", features = ["serde"] }
 log = "0.4"
+url = "2.1"
+async-trait = "*"
+chrono = "*"
+xactor = "0.7"
+async-std = "1.6"
+#surf = {version="1.0.3", features=["curl-client"]}
+#reqwest = {version="*", features=["rustls-tls", "gzip"]}
+ureq = "*"
+os_info = "3.0"
+zip = "0.5"
+uuid = { version = "0.8", features = ["v4", "serde"] }
+futures = "0.3"
 
-deno_core ="*"
+[dev-dependencies]
+minifaas-test = { path = "../minifaas-test" }

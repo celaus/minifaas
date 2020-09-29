@@ -7,8 +7,16 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hashbrown = { version = "0.7", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
-crossbeam-channel = "0.4"
-rmp-serde = "0.14"
+serde = { version = "1.0", features = ["derive", "rc"] }
+#rmp-serde = "0.14"
 log = "0.4"
+async-trait = "*"
+xactor = "0.7"
+async-std = {version = "1.6", features = ["unstable"] }
+uuid = { version = "0.8", features = ["v4", "serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+serde_json = "1.0"
+
+[dev-dependencies]
+minifaas-test = { path = "../minifaas-test" }

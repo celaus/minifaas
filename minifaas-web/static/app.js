@@ -29,9 +29,11 @@ async function saveFunction() {
     "id": name,
     "name": name,
     "code": code,
-    "trigger": "Http",
-    "method": "GET",
-    "language": {"lang": "JavaScript"},
+    "trigger": {
+      "type": "Http",
+      "when": "GET"
+    },
+    "language": { "lang": "JavaScript" },
     "timestamp": new Date().toISOString()
   };
   await fetch(API_URL, {
@@ -40,7 +42,7 @@ async function saveFunction() {
       "Content-type": "application/json; charset=UTF-8"
     },
     body: JSON.stringify(payload)
-  }).then(_ => location.reload())
+  })//.then(_ => location.reload())
 }
 
 async function removeFunction(name) {
@@ -56,7 +58,7 @@ async function callFunction(name) {
     "code": "code",
     "trigger": "Http",
     "method": "GET",
-    "language": {"lang": "JavaScript"},
+    "language": { "lang": "JavaScript" },
     "timestamp": new Date().toISOString()
   };
   console.log(payload);
@@ -65,5 +67,6 @@ async function callFunction(name) {
     headers: {
       "Content-type": "application/json; charset=UTF-8"
     },
-    body: JSON.stringify(payload)}));
+    body: JSON.stringify(payload)
+  }));
 }

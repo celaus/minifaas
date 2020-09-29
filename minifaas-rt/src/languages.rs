@@ -1,45 +1,62 @@
-mod javascript;
-pub use javascript::JavaScript;
-use minifaas_common::{FunctionCode, errors::ExecutionError};
-
-type Result<T> = std::result::Result<T, ExecutionError>;
-
+use crate::ext::toolchain::ToolchainSetup;
+use crate::ActiveToolchain;
+use async_std::sync::Arc;
+use minifaas_common::ProgrammingLanguage;
+use std::collections::HashMap;
 
 ///
 /// Which toolchains (language runtimes) are currently supported
-/// 
+///
+#[derive(Debug, Copy, Clone)]
 pub enum SupportedToolchains {
     JavaScript,
+    None,
 }
 
-
-///
-/// A language runtime.
-/// 
-/// 
-pub struct Runtime {}
-
-impl Runtime {
-    pub fn new() -> Self {
-        Runtime {}
+impl Default for SupportedToolchains {
+    fn default() -> Self {
+        SupportedToolchains::None
     }
 }
 
 ///
-/// Bytecode suitable for execution.
-/// 
-pub trait CompiledCode {}
-
+/// A mapping of a toolchains to a languages in two separate stores.
+/// Keeps build toolchains and exec toolchains separate.
 ///
-/// A trait for retrieving the source code of a function as string.
-/// 
-pub trait SourceCode {
-    fn str_source(&self) -> &str;
+#[derive(Debug, Default, Clone)]
+pub struct ToolchainMap<T: ToolchainSetup + Default + Clone> {
+    builders: HashMap<ProgrammingLanguage, T>,
+    execs: HashMap<ProgrammingLanguage, Arc<ActiveToolchain>>,
 }
 
+impl<T: ToolchainSetup + Default + Clone> ToolchainMap<T> {
+    pub fn new(
+        toolchains: Vec<(ProgrammingLanguage, T)>,
+        executors: Vec<(ProgrammingLanguage, Arc<ActiveToolchain>)>,
+    ) -> Self {
+        ToolchainMap {
+            builders: toolchains.into_iter().collect(),
+            execs: executors.into_iter().collect(),
+        }
+    }
 
-impl SourceCode for FunctionCode {
-    fn str_source(&self) -> &str {
-        &self.code
+    pub fn select_for(&self, lang: &ProgrammingLanguage) -> Option<&T> {
+        self.builders.get(lang)
+    }
+
+    pub fn select_for_mut(&mut self, lang: &ProgrammingLanguage) -> Option<&mut T> {
+        self.builders.get_mut(lang)
+    }
+
+    pub fn select_executor(&self, lang: &ProgrammingLanguage) -> Option<&Arc<ActiveToolchain>> {
+        self.execs.get(lang)
+    }
+
+    pub fn len_toolchain_setups(&self) -> usize {
+        self.builders.len()
+    }
+
+    pub fn len_toolchain_executors(&self) -> usize {
+        self.execs.len()
     }
 }
