@@ -1,0 +1,2 @@
+[server]
+endpoint = "localhost:6200" # Eden-server address

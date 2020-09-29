@@ -1,24 +1,30 @@
+mod config;
+mod errors;
 mod utils;
 
-use actix_files as fs;
-use actix_web::{
-    error::ErrorBadRequest, error::ErrorInternalServerError, http::header::HeaderName,
-    http::header::HeaderValue, http::StatusCode, middleware, web, web::Payload, App, HttpRequest,
-    HttpResponse, HttpServer,
-};
+use crate::utils::convert_http_method;
+use anyhow::{Error as AnyError, Result};
 use askama::Template;
-use chrono::prelude::*;
-use crossbeam_channel::{bounded, Sender};
-use futures::StreamExt;
+use clap::{App as ClApp, Arg};
+use config::{read_config, Settings};
+use minifaas_rt::RuntimeConnection;
+//use crossbeam_channel::{bounded, Sender};
+use log::{debug, error, info, trace, warn};
+use minifaas_common::triggers::http::HttpTrigger;
 use minifaas_common::*;
 use minifaas_rt::{create_runtime, RuntimeConfiguration};
 use std::collections::HashMap;
-use std::env;
+use std::convert::TryFrom;
 use std::fs::File;
-use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use tide;
+use tide::http::headers::{HeaderName, HeaderValue};
+use tide::{Body, Request, Response, StatusCode};
 use uuid::Uuid;
+
+type AppSate = (Arc<FaaSDataStore>, RuntimeConnection);
 
 const MAX_RUNTIME_SECS: u64 = 300;
 const NO_RUNTIME_THREADS: usize = 10;
@@ -30,182 +36,236 @@ struct IndexViewModel {
     triggers: Vec<Trigger>,
 }
 
-async fn call_function(
-    storage: web::Data<FaaSDataStore>,
-    runtime: web::Data<Sender<RuntimeRequest>>,
-    name: web::Path<String>,
-    req: HttpRequest,
-    mut body: Payload,
-) -> actix_web::Result<HttpResponse> {
-    let name = name.to_string();
+async fn call_function(mut req: Request<AppSate>) -> tide::Result {
+    let bytes = req.body_bytes().await?;
 
-    if let Some(user_func) = storage.as_ref().get(&name) {
-        let timeout = Duration::from_secs(MAX_RUNTIME_SECS); // 5 minutes timeout
-        let (tx, rx) = bounded::<RuntimeResponse>(1); // create a channel for a single message
+    let (storage, runtime) = req.state();
+    let name: String = req.param("name")?;
+    info!("Calling function '{}'", name);
+    if let Some(user_func) = storage.get(&name).await {
+        let query_params: HashMap<String, Option<Vec<String>>> = req.query().unwrap_or_default();
+        let req_headers = utils::headers_to_map(&mut req.iter()).await;
 
-        let query_params = utils::query_to_map(req.query_string()).await;
-        let req_headers = utils::headers_to_map(req.headers()).await;
-        let mut bytes = web::BytesMut::new();
-        while let Some(item) = body.0.next().await {
-            let item = item?;
-            println!("Chunk: {:?}", &item);
-            bytes.extend_from_slice(&item);
-        }
-
-        let _ = runtime.as_ref().send(RuntimeRequest::FunctionCall(
-            user_func,
-            FunctionInputs::Http {
-                params: query_params,
-                body: bytes.to_vec(),
-                headers: req_headers,
-            },
-            tx,
-        ));
-        let func_output = web::block(move || {
-            let result = rx.recv_timeout(timeout);
-            drop(rx);
-            result
-        })
-        .await
-        .unwrap();
+        let func_output = runtime
+            .send(RuntimeRequest::FunctionCall(
+                user_func,
+                FunctionInputs::Http(HttpTrigger {
+                    route: name,
+                    params: query_params,
+                    body: bytes.to_vec(),
+                    headers: req_headers,
+                    method: convert_http_method(req.method()),
+                }),
+            ))
+            .await?;
+        info!("Function output: {:?}", func_output);
         match func_output {
             RuntimeResponse::FunctionResponse(resp) => {
-                if let FunctionOutputs::Http {
-                    headers,
-                    body,
-                    status_code,
-                } = resp
-                {
-                    let mut builder = HttpResponse::build(
-                        StatusCode::from_u16(status_code).unwrap_or(StatusCode::BAD_REQUEST),
+                if let FunctionOutputs::Http(http) = resp {
+                    let mut builder = Response::new(
+                        StatusCode::try_from(http.status_code).unwrap_or(StatusCode::BadRequest),
                     );
-                    let mut response = headers.iter().fold(&mut builder, |out, (n, v)| {
+                    builder.set_body(http.body);
+
+                    let response = http.headers.iter().fold(builder, |mut out, (n, v)| {
                         let val = HeaderValue::from_str(v.as_ref().unwrap_or(&"".to_owned())).ok();
-                        let name = HeaderName::from_lowercase(n.to_lowercase().as_bytes()).ok();
+                        let name =
+                            HeaderName::from_bytes(n.to_lowercase().as_bytes().to_vec()).ok();
                         if val.is_some() && name.is_some() {
-                            out.header(name.unwrap(), val.unwrap())
-                        } else {
-                            out
+                            out.insert_header(name.unwrap(), val.unwrap());
                         }
+                        out
                     });
-                    Ok(response.body(body))
+                    Ok(response)
                 } else {
-                    Err(ErrorBadRequest(format!("{:?}", resp)))
+                    Err(utils::_400(format!("{:?}", resp)).await)
                 }
             }
-            RuntimeResponse::FunctionRuntimeUnavailable(lang) => Err(ErrorBadRequest(lang)),
+            RuntimeResponse::FunctionRuntimeUnavailable(lang) => {
+                Err(utils::_400(format!("{}", lang)).await)
+            }
             RuntimeResponse::FunctionExecutionError { message, context } => {
-                Err(ErrorBadRequest(context.join("\n")))
+                Err(utils::_400(context.join("\n")).await)
             } // <- find a good way to return execution errors (stack traces etc)>
-            _ => Err(ErrorInternalServerError("Some error message")),
+            _ => Err(utils::_500("Some error message").await),
         }
     } else {
-        Err(ErrorInternalServerError("Some error message"))
+        Err(utils::_500("Some error message").await)
     }
 }
 
-async fn add_new_function(
-    storage: web::Data<FaaSDataStore>,
-    item: web::Json<UserFunctionDeclaration>,
-) -> HttpResponse {
-    let name: String = item.name.clone();
+async fn add_new_function(mut req: Request<AppSate>) -> tide::Result {
+    let item: UserFunctionDeclaration = req.body_json().await?;
+    let name = &item.name;
+    info!(
+        "Name: {}, Trigger: {:?}, Code: {}",
+        name, item.trigger, item.code
+    );
     if !name.trim().is_empty() {
-        storage.as_ref().set(name, item.into_inner().code);
-        HttpResponse::Ok().finish()
+        let (storage, connection) = req.state();
+        storage
+            .set(name.clone(), UserFunctionRecord::from(item.clone()))
+            .await;
+        let code = storage
+            .get(&name)
+            .await
+            .ok_or_else(|| AnyError::msg(format!("Function couldn't be found: {}", name)))?;
+
+        connection.send(RuntimeRequest::NewFunction(code)).await?;
+        Ok(Response::new(StatusCode::Ok))
     } else {
-        HttpResponse::BadRequest().body(format!("Name '{}' is invalid", name))
+        info!("ERROR :(");
+
+        Err(tide::Error::from_str(
+            StatusCode::BadRequest,
+            format!("Name '{}' is invalid", name),
+        ))
     }
 }
 
-async fn remove_function(storage: web::Data<FaaSDataStore>, name: web::Path<String>) -> HttpResponse {
+async fn remove_function(req: Request<AppSate>) -> tide::Result {
+    let (storage, _) = req.state();
+    let name: String = req.param("name")?;
     if !name.trim().is_empty() {
-        storage.as_ref().delete(&name);
-        HttpResponse::Ok().finish()
+        storage.delete(&name).await;
+        Ok(Response::new(StatusCode::Ok))
     } else {
-        HttpResponse::BadRequest().body(format!("Name '{}' is invalid", name))
+        Err(tide::Error::from_str(
+            StatusCode::BadRequest,
+            format!("Name '{}' is invalid", name),
+        ))
     }
 }
 
-async fn get_function_code(
-    storage: web::Data<FaaSDataStore>,
-    name: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
-    let name = name.to_string();
-    if let Some(user_func) = storage.as_ref().get(&name) {
-        Ok(HttpResponse::Ok().json(user_func))
+async fn get_function_code(req: Request<AppSate>) -> tide::Result {
+    let (storage, _) = req.state();
+    let name: String = req.param("name")?;
+    if let Some(user_func) = storage.get(&name).await {
+        let mut response = Response::new(StatusCode::Ok);
+        response.set_body(Body::from_json(&user_func)?);
+        Ok(response)
     } else {
-        Err(actix_web::error::ErrorNotFound(format!(
-            "{} not found",
-            name
-        )))
+        Err(tide::Error::from_str(
+            StatusCode::BadRequest,
+            format!("{} not found", name),
+        ))
     }
 }
 
-async fn list_all_functions(storage: web::Data<FaaSDataStore>) -> HttpResponse {
-    HttpResponse::Ok().json(storage.as_ref().values())
+async fn list_all_functions(req: Request<AppSate>) -> tide::Result {
+    let (storage, _) = req.state();
+    let mut resp = Response::new(StatusCode::Ok);
+    resp.set_body(Body::from_json(&storage.values().await)?);
+    Ok(resp)
 }
 
-#[actix_web::get("/")]
-async fn index(storage: web::Data<FaaSDataStore>) -> actix_web::Result<HttpResponse> {
-    let functions = storage.as_ref().keys();
+async fn index(req: Request<AppSate>) -> tide::Result {
+    let (storage, _) = req.state();
+    let functions = storage.keys().await;
     IndexViewModel {
         functions,
-        triggers: vec![Trigger::Http {
-            method: "GET".to_owned(),
-        }],
+        triggers: vec![Trigger::Http(HttpMethod::ALL)],
     }
     .render()
     .map(|body| {
-        HttpResponse::Ok()
-            .content_type("text/html; charset=utf-8")
-            .body(body)
+        let mut resp = Response::new(StatusCode::Ok);
+        resp.set_body(body);
+        resp.set_content_type(http_types::Mime::from_str("text/html;charset=utf-8").unwrap());
+        resp
     })
-    .map_err(|_| ErrorInternalServerError("Some error message"))
+    .map_err(|_| tide::Error::from_str(StatusCode::InternalServerError, ":("))
 }
 
-#[actix_rt::main]
-async fn main() -> std::io::Result<()> {
-    env::set_var("RUST_LOG", "actix_web=debug");
-    env_logger::init();
-    println!(
+// #[message(result = "String")]
+// struct ToUppercase(String);
+
+// struct MyActor;
+
+// impl Actor for MyActor {}
+
+// #[async_trait::async_trait]
+// impl Handler<ToUppercase> for MyActor {
+//     async fn handle(&mut self, _ctx: &Context<Self>, msg: ToUppercase) -> String {
+//         msg.0.to_uppercase()
+//     }
+// }
+
+#[async_std::main]
+async fn main() -> Result<()> {
+    let matches = ClApp::new("MiniFaaS")
+        .version("0.1.0")
+        .author("Claus Matzinger. <claus.matzinger+kb@gmail.com>")
+        .about("A no-fluff Function-as-a-Service runtime for home use.")
+        .arg(
+            Arg::with_name("config")
+                .short("c")
+                .long("config")
+                .help("Sets a custom config file [default: config.toml]")
+                .value_name("config.toml")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("logging")
+                .short("l")
+                .long("logging-conf")
+                .value_name("logging.yml")
+                .takes_value(true)
+                .help("Sets the logging configuration [default: logging.yml]"),
+        )
+        .arg(
+          Arg::with_name("environment")
+              .short("e")
+              .long("environment-root")
+              .value_name("/tmp")
+              .takes_value(true)
+              .help("Sets the configuration where the executables and file system for functions (i.e. their enviornments) should reside. Default: /tmp"),
+      )
+        .get_matches();
+
+    let config_filename = matches.value_of("config").unwrap_or("config.toml");
+    let logging_filename = matches.value_of("logging").unwrap_or("logging.yml");
+    let env_root = matches.value_of("environment").unwrap_or("/tmp");
+    info!(
+        "Using configuration file '{}' and logging config '{}'",
+        config_filename, logging_filename
+    );
+
+    log4rs::init_file(logging_filename, Default::default()).expect("Could not initialize log4rs.");
+    let mut f = File::open(config_filename).expect("Could not open config file.");
+    let settings: Settings = read_config(&mut f).expect("Could not read config file.");
+
+    debug!(
         "serialized {}",
         serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()
     );
-
     // set up connections to aux projects
-    let _storage = create_or_load_storage(DataStoreConfig::new("functions.db", true))?;
-    let runtime_channel = create_runtime(RuntimeConfiguration::new(NO_RUNTIME_THREADS));
+    let _storage =
+        Arc::new(create_or_load_storage(DataStoreConfig::new("functions.db", true)).await?);
+    let predefined_envs = sync_environments(env_root, _storage.clone()).await?;
+    let runtime_channel = create_runtime(
+        RuntimeConfiguration::new(NO_RUNTIME_THREADS),
+        predefined_envs,
+        _storage.clone(),
+    )
+    .await?;
 
-    let storage = web::Data::new(_storage);
-    let runtime = web::Data::new(runtime_channel.clone());
-    // start "frontend" web app
-    let server = HttpServer::new(move || {
-        App::new()
-            .wrap(middleware::Logger::default())
-            .app_data(storage.clone()) // add shared state
-            .app_data(runtime.clone())
-            .data(web::JsonConfig::default()) // <- limit size of the payload (global configuration)
-            .service(fs::Files::new("/assets", "./minifaas-web/static"))
-            .service(
-                web::scope("/api/v1/")
-                    .service(web::resource("/f").route(web::put().to(add_new_function)))
-                    .service(web::resource("/f/{name}").route(web::delete().to(remove_function)))
-                    .service(web::resource("/functions").route(web::get().to(list_all_functions))),
-            )
-            .service(
-                web::scope("/f/")
-                    .service(web::resource("/call/{name}").to(call_function))
-                    .service(web::resource("/impl/{name}").route(web::get().to(get_function_code))),
-            )
-            .service(index)
-    })
-    .bind("127.0.0.1:8081")?
-    .run()
-    .await;
-    // stop runtime gracefully
-    let _ = runtime_channel
-        .send(RuntimeRequest::Shutdown)
-        .and_then(|_| Ok(std::thread::sleep(Duration::from_secs(5))));
-
-    server
+    let mut app = tide::with_state((_storage.clone(), runtime_channel.clone()));
+    app.with(tide::log::LogMiddleware::new());
+    app.at("/assets").serve_dir("./minifaas-web/static")?;
+    app.at("/").get(index);
+    app.at("/api").nest({
+        let mut f = tide::with_state((_storage.clone(), runtime_channel.clone()));
+        f.at("v1/f").put(add_new_function);
+        f.at("v1/f/:name").delete(remove_function);
+        f.at("v1/functions").delete(list_all_functions);
+        f
+    });
+    app.at("/f/").nest({
+        let mut f = tide::with_state((_storage.clone(), runtime_channel.clone()));
+        f.at("/call/:name").all(call_function);
+        f.at("/impl/:name").get(get_function_code);
+        f
+    });
+    app.listen(settings.server.endpoint).await?;
+    Ok(())
 }
