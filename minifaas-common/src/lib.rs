@@ -9,14 +9,13 @@ pub use crate::types::*;
 pub use types::Trigger;
 use anyhow::Result;
 use async_std::path::PathBuf;
-pub use datastore::{DataStoreConfig, FaaSDataStore, UserFunctionRecord};
+pub use datastore::{DataStoreConfig, FaaSDataStore, UserFunctionRecord, UserFunctionType};
 pub use environment::{Environment, Environments};
 use log::{debug, error, info, trace, warn};
 use std::sync::Arc;
 use uuid::Uuid;
 
 pub use runtime::{FunctionInputs, FunctionOutputs, RuntimeRequest, RuntimeResponse};
-
 
 ///
 /// Creates and prepares the file system

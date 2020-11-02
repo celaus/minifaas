@@ -10,6 +10,7 @@ use std::fs::read_dir;
 use std::iter::FromIterator;
 use std::path::PathBuf;
 use uuid::Uuid;
+use std::fmt;
 
 const ID_FILE_NAME: &str = ".minifaas-id";
 
@@ -214,6 +215,13 @@ impl Environment {
 
     pub async fn relative_path<S: Into<PathBuf>>(&self, sub_path: S) -> PathBuf {
         PathBuf::from(&self.root).join(sub_path.into())
+    }
+}
+
+
+impl fmt::Display for Environment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Environment {} at {}", self.id, self.root)
     }
 }
 

@@ -1,4 +1,6 @@
 const API_URL = "/api/v1/f";
+const HTTP_TRIGGER_PARSER = /HTTP \(([A-Z]+)\)/;
+
 const editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
   lineNumbers: true,
   mode: "text/javascript",
@@ -6,11 +8,8 @@ const editor = CodeMirror.fromTextArea(document.getElementById("editor"), {
   lineWrapping: true,
 });
 
-async function selectToShow(name) {
+async function selectToShow(name, code, trigger) {
   document.getElementById("fn-name").value = name;
-  let response = await (await fetch(`/f/impl/${name}`)).json();
-  let code = response.code;
-  let trigger = "Http trigger (GET)";
 
   const options = Array.apply(null, document.getElementById("fn-trigger-select").options);
   const selected_trigger = options.find(v => v.value == trigger);
@@ -24,25 +23,40 @@ async function selectToShow(name) {
 
 async function saveFunction() {
   let name = document.getElementById("fn-name").value;
-  let code = editor.getValue();
-  let payload = {
-    "id": name,
-    "name": name,
-    "code": code,
-    "trigger": {
-      "type": "Http",
-      "when": "GET"
-    },
-    "language": { "lang": "JavaScript" },
-    "timestamp": new Date().toISOString()
-  };
-  await fetch(API_URL, {
-    method: 'put',
-    headers: {
-      "Content-type": "application/json; charset=UTF-8"
-    },
-    body: JSON.stringify(payload)
-  })//.then(_ => location.reload())
+  if (name.trim()) {
+    const http_trigger = document.getElementById("fn-trigger-select").value;
+    const lang = document.getElementById("fn-lang-select").value;
+
+    console.log(http_trigger);
+    let code = editor.getValue();
+    let payload = {
+      "id": name,
+      "name": name,
+      "code": code,
+      "trigger": {
+        "type": "Http",
+        "when": http_trigger.match(HTTP_TRIGGER_PARSER)[1]
+      },
+      "language": { "lang": lang },
+      "timestamp": new Date().toISOString()
+    };
+    await fetch(API_URL, {
+      method: 'put',
+      headers: {
+        "Content-type": "application/json; charset=UTF-8"
+      },
+      body: JSON.stringify(payload)
+    }).then(resp => {
+      if (resp.ok) {
+        $("#alert-ok-text").html("Saved!").show();
+      } else {
+        $("#alert-ok-text").html("bad news").show();
+      }
+    })
+  }
+  else {
+    $("#alert-ok-text").html("NEIN").show();
+  }
 }
 
 async function removeFunction(name) {

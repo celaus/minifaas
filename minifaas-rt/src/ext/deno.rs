@@ -6,6 +6,7 @@ use async_std::task;
 use log::{debug, error, info, warn};
 use minifaas_common::runtime::RawFunctionInput;
 use std::io;
+use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -137,18 +138,21 @@ impl ToolchainLifecycle for Deno {
         Ok(())
     }
 }
-use std::io::Read;
 #[async_trait::async_trait]
 impl ToolchainSetup for DenoSetup {
     async fn pre_setup(&mut self, env: &Environment) -> Result<()> {
         self.installed = env.has_file(&self.local_path).await;
+        info!("Is Deno installed in {}? {}", env, self.installed);
+
         Ok(())
     }
 
     async fn setup(&self, env: &Environment) -> Result<()> {
         if self.installed {
+            info!("Found Deno in {}, skipping setup", env);
             Ok(())
         } else {
+            info!("Could not find Deno in Env: {}", env);
             let origin = format!(
                 "https://github.com/denoland/deno/releases/download/v{}/deno-{}.zip",
                 self.version,

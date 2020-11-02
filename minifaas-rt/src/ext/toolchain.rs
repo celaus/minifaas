@@ -1,14 +1,21 @@
+use crate::ext::bash::Bash;
+use crate::ext::bash::BashSetup;
 use crate::ext::deno::Deno;
+use crate::output_parser::{Parser, ReaderInput};
 use crate::DenoSetup;
 use anyhow::Result;
 use log::info;
 use minifaas_common::runtime::RawFunctionInput;
 use minifaas_common::Environment;
 use std::collections::HashMap;
+use std::io::Cursor;
+
+const STDOUT_PREFIX: &str = "__MF__";
 
 #[derive(Debug, Clone)]
 pub enum ActiveToolchain {
     Deno(Deno),
+    Bash(Bash),
     Noop,
 }
 
@@ -16,6 +23,8 @@ impl ActiveToolchain {
     pub async fn build(&self, code: &str) -> Result<Vec<u8>> {
         match self {
             ActiveToolchain::Deno(deno) => deno._build(code).await,
+            ActiveToolchain::Bash(bash) => bash._build(code).await,
+
             _ => Ok(vec![]),
         }
     }
@@ -30,13 +39,16 @@ impl ActiveToolchain {
             ActiveToolchain::Deno(deno) => {
                 deno.pre_execute(&input).await?;
                 deno._execute(code, &input, env).await?
-            }
+            }, 
+            ActiveToolchain::Bash(bash) => {
+                bash.pre_execute(&input).await?;
+                bash._execute(code, &input, env).await?
+            },
             _ => String::new(),
         };
         info!("STDOUT of '{}': {}", env.id, stdout);
-        // TODO process stdout to hashmap
-
-        Ok(HashMap::default())
+        let p = Parser::new(STDOUT_PREFIX.to_string());
+        p.parse_to_map(Cursor::new(stdout))
     }
 }
 
@@ -49,6 +61,7 @@ impl Default for ActiveToolchain {
 #[derive(Debug, Clone)]
 pub enum BuildToolchain {
     Deno(DenoSetup),
+    Bash(BashSetup),
     Noop,
 }
 

@@ -1,6 +1,9 @@
 mod ext;
 pub mod languages;
+mod output_parser;
 
+use crate::ext::bash::Bash;
+use crate::ext::bash::BashSetup;
 use crate::ext::deno::Deno;
 use crate::ext::deno::DenoSetup;
 use crate::ext::toolchain::ActiveToolchain;
@@ -12,6 +15,7 @@ use std::sync::Arc;
 use xactor::*;
 mod actors;
 use actors::*;
+use chrono::Duration;
 use futures::future::join_all;
 /// Move this crate to actors:
 /// Management actor that manages access to the function db?
@@ -24,14 +28,18 @@ use futures::future::join_all;
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeConfiguration {
     num_threads: usize,
+    timer_resolution_ms: i64,
 }
 
 impl RuntimeConfiguration {
     ///
     /// New runtime config
     ///
-    pub fn new(num_threads: usize) -> Self {
-        RuntimeConfiguration { num_threads }
+    pub fn new(num_threads: usize, timer_resolution_ms: i64) -> Self {
+        RuntimeConfiguration {
+            num_threads,
+            timer_resolution_ms,
+        }
     }
 }
 
@@ -39,6 +47,7 @@ impl RuntimeConfiguration {
 pub struct RuntimeConnection {
     controller_addr: Addr<RuntimeController>,
     http_addr: Addr<HttpTriggered>,
+    timer_addr: Addr<TimerTriggered>,
 }
 
 impl RuntimeConnection {
@@ -53,6 +62,7 @@ impl RuntimeConnection {
                 FunctionInputs::Http(inp) => {
                     self.http_addr.call(inp).await?.map(RuntimeResponse::from)
                 }
+                FunctionInputs::Timer(_) => Err(Error::msg("Cannot call timers explicitly")),
             },
             RuntimeRequest::NewFunction(code) => {
                 let _ = self
@@ -68,7 +78,11 @@ impl RuntimeConnection {
                     .await
                     .map(|_| RuntimeResponse::Ok)
             }
-
+            RuntimeRequest::Disable(code) => self
+                .controller_addr
+                .call(StopExecutorMsg { code })
+                .await
+                .map(|_| RuntimeResponse::Ok),
             _ => Ok(RuntimeResponse::FunctionRuntimeUnavailable(
                 ProgrammingLanguage::JavaScript,
             )),
@@ -91,6 +105,10 @@ pub async fn create_runtime(
                 BuildToolchain::Deno(DenoSetup::default()),
             ),
             (
+                ProgrammingLanguage::Bash,
+                BuildToolchain::Bash(BashSetup::default()),
+            ),
+            (
                 ProgrammingLanguage::Unknown,
                 BuildToolchain::Deno(DenoSetup::default()),
             ),
@@ -101,11 +119,17 @@ pub async fn create_runtime(
                 Arc::new(ActiveToolchain::Deno(Deno::default())),
             ),
             (
+                ProgrammingLanguage::Bash,
+                Arc::new(ActiveToolchain::Bash(Bash::default())),
+            ),
+            (
                 ProgrammingLanguage::Unknown,
                 Arc::new(ActiveToolchain::Deno(Deno::default())),
             ),
         ],
     );
+
+    let timer_resolution = Duration::milliseconds(config.timer_resolution_ms).to_std()?;
 
     info!(
         "Found {} executors & {} setups",
@@ -115,14 +139,15 @@ pub async fn create_runtime(
 
     let _http = Supervisor::start(HttpTriggered::new).await?;
     let _http2 = _http.clone();
-    let _timer = Supervisor::start(TimerTriggered::new).await?;
+    let _timer = Supervisor::start(move || TimerTriggered::new(timer_resolution)).await?;
+    let _timer2 = _timer.clone();
 
     let _env_setup = Supervisor::start(move || {
         RuntimeController::new(
             predefined_envs.clone(),
             setup_map.clone(),
             _http2.clone(),
-            _timer.clone(),
+            _timer2.clone(),
         )
     })
     .await?;
@@ -162,5 +187,6 @@ pub async fn create_runtime(
     Ok(RuntimeConnection {
         controller_addr: _env_setup,
         http_addr: _http.clone(),
+        timer_addr: _timer.clone(),
     })
 }

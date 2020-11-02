@@ -1,7 +1,8 @@
-use crate::UserFunctionRecord;
-use crate::HttpMethod;
 use crate::triggers::http::HttpTrigger;
 use crate::triggers::http::HttpTriggerOutputs;
+use crate::triggers::timer::TimerTrigger;
+use crate::HttpMethod;
+use crate::UserFunctionRecord;
 use crate::{errors::ExecutionError, FunctionCode, ProgrammingLanguage};
 use std::boxed::Box;
 use std::collections::HashMap; // used for compatibility reasons
@@ -16,6 +17,11 @@ pub enum RuntimeRequest {
     /// Graceful shutdown
     ///
     Shutdown,
+
+    ///
+    /// Graceful shutdown
+    ///
+    Disable(Arc<Box<UserFunctionRecord>>),
 
     ///
     /// Call a function by shipping the code and a response channel.
@@ -94,11 +100,18 @@ pub enum FunctionInputs {
     /// Available fields for a HTTP trigger
     ///
     Http(HttpTrigger),
+    Timer(TimerTrigger),
 }
 
 impl From<HttpTrigger> for FunctionInputs {
     fn from(t: HttpTrigger) -> Self {
         FunctionInputs::Http(t)
+    }
+}
+
+impl From<TimerTrigger> for FunctionInputs {
+    fn from(t: TimerTrigger) -> Self {
+        FunctionInputs::Timer(t)
     }
 }
 
@@ -119,7 +132,6 @@ pub enum FunctionOutputs {
     None,
 }
 
-
 #[xactor::message]
 #[derive(Default, Debug)]
 pub struct RawFunctionOutput(HashMap<String, Vec<u8>>);
@@ -136,7 +148,6 @@ impl RawFunctionOutput {
             .get("headers")
             .and_then(|s| serde_json::from_slice(s).ok())
             .unwrap_or_default();
-            
         let body = self.0.remove("body").unwrap_or_default();
         let status_code = self
             .0
@@ -164,7 +175,7 @@ pub enum FnInputValue {
 }
 
 #[xactor::message(result = "anyhow::Result<RawFunctionOutput>")]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RawFunctionInput(HashMap<String, FnInputValue>);
 
 impl From<HttpTrigger> for RawFunctionInput {
@@ -176,6 +187,18 @@ impl From<HttpTrigger> for RawFunctionInput {
             (String::from("method"), FnInputValue::Type(input.method)),
             (String::from("route"), FnInputValue::Str(input.route)),
         ]
+        .into_iter()
+        .collect();
+        RawFunctionInput(map)
+    }
+}
+
+impl From<TimerTrigger> for RawFunctionInput {
+    fn from(input: TimerTrigger) -> Self {
+        let map: HashMap<String, FnInputValue> = vec![(
+            String::from("when"),
+            FnInputValue::Str(input.when.format("%s").to_string()),
+        )]
         .into_iter()
         .collect();
         RawFunctionInput(map)

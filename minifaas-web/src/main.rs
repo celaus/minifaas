@@ -18,7 +18,7 @@ use std::convert::TryFrom;
 use std::fs::File;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+
 use tide;
 use tide::http::headers::{HeaderName, HeaderValue};
 use tide::{Body, Request, Response, StatusCode};
@@ -32,8 +32,9 @@ const NO_RUNTIME_THREADS: usize = 10;
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexViewModel {
-    functions: Vec<String>,
-    triggers: Vec<Trigger>,
+    functions: Vec<UserFunctionType>,
+    http_triggers: Vec<Trigger>,
+    programming_languages: Vec<ProgrammingLanguage>,
 }
 
 async fn call_function(mut req: Request<AppSate>) -> tide::Result {
@@ -94,7 +95,7 @@ async fn call_function(mut req: Request<AppSate>) -> tide::Result {
     }
 }
 
-async fn add_new_function(mut req: Request<AppSate>) -> tide::Result {
+async fn save_function(mut req: Request<AppSate>) -> tide::Result {
     let item: UserFunctionDeclaration = req.body_json().await?;
     let name = &item.name;
     info!(
@@ -103,9 +104,22 @@ async fn add_new_function(mut req: Request<AppSate>) -> tide::Result {
     );
     if !name.trim().is_empty() {
         let (storage, connection) = req.state();
-        storage
-            .set(name.clone(), UserFunctionRecord::from(item.clone()))
-            .await;
+
+        let new_record = match storage.get(&name).await {
+            Some(f) => { // if a function is already saved it needs to be updated
+                let env_id = f.environment_id.clone();
+
+                // ... and for that we have to disable the function
+                connection.send(RuntimeRequest::Disable(f)).await?;
+
+                // ... and create a new record with the same environment as the old one
+                UserFunctionRecord::new(item.clone(), env_id)
+            }
+            None => UserFunctionRecord::from(item.clone()),
+        };
+
+        // replace the exisiting function
+        storage.set(name.clone(), new_record).await;
         let code = storage
             .get(&name)
             .await
@@ -159,12 +173,17 @@ async fn list_all_functions(req: Request<AppSate>) -> tide::Result {
     Ok(resp)
 }
 
+///
+/// The main page showing all active functions.
+///
+///
 async fn index(req: Request<AppSate>) -> tide::Result {
     let (storage, _) = req.state();
-    let functions = storage.keys().await;
+    let functions = storage.values().await;
     IndexViewModel {
         functions,
-        triggers: vec![Trigger::Http(HttpMethod::ALL)],
+        http_triggers: Trigger::all_http(),
+        programming_languages: ProgrammingLanguage::available()
     }
     .render()
     .map(|body| {
@@ -176,19 +195,6 @@ async fn index(req: Request<AppSate>) -> tide::Result {
     .map_err(|_| tide::Error::from_str(StatusCode::InternalServerError, ":("))
 }
 
-// #[message(result = "String")]
-// struct ToUppercase(String);
-
-// struct MyActor;
-
-// impl Actor for MyActor {}
-
-// #[async_trait::async_trait]
-// impl Handler<ToUppercase> for MyActor {
-//     async fn handle(&mut self, _ctx: &Context<Self>, msg: ToUppercase) -> String {
-//         msg.0.to_uppercase()
-//     }
-// }
 
 #[async_std::main]
 async fn main() -> Result<()> {
@@ -243,7 +249,7 @@ async fn main() -> Result<()> {
         Arc::new(create_or_load_storage(DataStoreConfig::new("functions.db", true)).await?);
     let predefined_envs = sync_environments(env_root, _storage.clone()).await?;
     let runtime_channel = create_runtime(
-        RuntimeConfiguration::new(NO_RUNTIME_THREADS),
+        RuntimeConfiguration::new(NO_RUNTIME_THREADS, 100_000),
         predefined_envs,
         _storage.clone(),
     )
@@ -255,9 +261,9 @@ async fn main() -> Result<()> {
     app.at("/").get(index);
     app.at("/api").nest({
         let mut f = tide::with_state((_storage.clone(), runtime_channel.clone()));
-        f.at("v1/f").put(add_new_function);
+        f.at("v1/f").put(save_function);
         f.at("v1/f/:name").delete(remove_function);
-        f.at("v1/functions").delete(list_all_functions);
+        f.at("v1/functions").get(list_all_functions);
         f
     });
     app.at("/f/").nest({
