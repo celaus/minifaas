@@ -1,3 +1,4 @@
+use crate::triggers::Trigger;
 pub use crate::types::*;
 use anyhow::Result;
 use async_std::fs::File;
@@ -14,100 +15,24 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use uuid::Uuid;
 
+use super::record::UserFunctionRecord;
+
 pub type UserFunctionType = Arc<Box<UserFunctionRecord>>;
 type InnerStorageType = HashMap<String, UserFunctionType>;
-
-///
-/// A DB record to store a user function and the corresponding trigger/env id.
-///
-///
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-pub struct UserFunctionRecord {
-    func: UserFunctionDeclaration,
-    pub environment_id: Uuid,
-}
-
-impl UserFunctionRecord {
-    pub fn new(func: UserFunctionDeclaration, env_id: Uuid) -> Self {
-        UserFunctionRecord {
-            func,
-            environment_id: env_id,
-        }
-    }
-
-    pub fn language(&self) -> ProgrammingLanguage {
-        self.func.code.language
-    }
-
-    pub fn code(&self) -> &FunctionCode {
-        &self.func.code
-    }
-
-    pub fn name(&self) -> &String {
-        &self.func.name
-    }
-
-    pub fn trigger(&self) -> Trigger {
-        self.func.trigger
-    }
-
-    pub fn update_function(
-        &mut self,
-        new_func: UserFunctionDeclaration,
-    ) -> UserFunctionDeclaration {
-        std::mem::replace(&mut self.func, new_func)
-    }
-}
-
-impl fmt::Display for UserFunctionRecord {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Function(Name: {}, Language: {}, Trigger: {}, Environment: {})",
-            self.name(),
-            self.language(),
-            self.trigger(),
-            self.environment_id
-        )
-    }
-}
-
-impl From<UserFunctionDeclaration> for UserFunctionRecord {
-    fn from(f: UserFunctionDeclaration) -> Self {
-        UserFunctionRecord::new(f, Uuid::new_v4())
-    }
-}
-
-///
-/// DataStore's configuration options
-///
-pub struct DataStoreConfig {
-    pub path: PathBuf,
-    pub serialize_on_write: bool,
-}
-
-impl DataStoreConfig {
-    pub fn new(path: impl Into<PathBuf>, serialize_on_write: bool) -> Self {
-        DataStoreConfig {
-            path: path.into(),
-            serialize_on_write,
-        }
-    }
-}
 
 ///
 /// A key-value store for the user-defined functions. Uses an RwLock for multi-threaded reads/writes. Can serialize itself to disk.
 ///
 #[derive(Debug)]
-pub struct FaaSDataStore {
+pub struct JsonFaaSDataStore {
     store: RwLock<InnerStorageType>,
     path: PathBuf,
     serialize_on_write: bool,
 }
 
-impl FaaSDataStore {
+impl JsonFaaSDataStore {
     pub fn new<P: Into<PathBuf>>(path: P, serialize_on_write: bool) -> Self {
-        FaaSDataStore::with(HashMap::new(), path, serialize_on_write)
+        JsonFaaSDataStore::with(HashMap::new(), path, serialize_on_write)
     }
 
     pub fn with<P: Into<PathBuf>>(
@@ -115,7 +40,7 @@ impl FaaSDataStore {
         path: P,
         serialize_on_write: bool,
     ) -> Self {
-        FaaSDataStore {
+        JsonFaaSDataStore {
             store: RwLock::new(map),
             path: path.into(),
             serialize_on_write,
@@ -248,7 +173,7 @@ impl FaaSDataStore {
             serde_json::from_reader(buf_reader).unwrap_or_default()
         })
         .await;
-        Ok(FaaSDataStore::with(store, p, true))
+        Ok(JsonFaaSDataStore::with(store, p, true))
     }
 }
 
@@ -279,7 +204,7 @@ mod tests {
     #[async_std::test]
     async fn test_from_path_missing_paths_create_new() {
         let p = get_empty_tmp_dir();
-        let store = FaaSDataStore::from_path(p.join("doesntexist")).await;
+        let store = JsonFaaSDataStore::from_path(p.join("doesntexist")).await;
         assert!(store.is_ok());
         assert_eq!(store.unwrap().len().await, 0);
     }
@@ -288,7 +213,7 @@ mod tests {
     #[should_panic]
     async fn test_from_path_invalid_paths_panic() {
         let p = get_empty_tmp_dir();
-        let _ = FaaSDataStore::from_path(p.join("hello").join("world")).await;
+        let _ = JsonFaaSDataStore::from_path(p.join("hello").join("world")).await;
         let _ = std::fs::remove_dir_all(p);
     }
 
@@ -300,6 +225,6 @@ mod tests {
         async_std::fs::write(p.join(f_name), b"invalidcontent")
             .await
             .unwrap();
-        assert!(FaaSDataStore::from_path(p.join(f_name)).await.is_err());
+        assert!(JsonFaaSDataStore::from_path(p.join(f_name)).await.is_err());
     }
 }

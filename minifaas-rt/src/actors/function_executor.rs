@@ -1,19 +1,24 @@
 use crate::ext::toolchain::ActiveToolchain;
-use crate::runtime::RawFunctionInput;
-use crate::runtime::RawFunctionOutput;
+use crate::logs::collectors::FileLogCollector;
+use crate::logs::collectors::LogCollector;
+use crate::output_parser::Parser;
+use crate::output_parser::ReaderInput;
+use crate::output_parser::STDOUT_PREFIX;
+use minifaas_common::runtime::{RawFunctionInput, RawFunctionOutputWrapper};
 use crate::OpsMsg;
 use anyhow::Result;
+use async_std::sync::Arc;
 use log::{debug, error, info, warn};
 use minifaas_common::Environment;
 use minifaas_common::UserFunctionRecord;
+use std::io::Cursor;
 use xactor::*;
-
-use async_std::sync::Arc;
 
 pub struct FunctionExecutor {
     environment: Environment,
     code: Arc<Box<UserFunctionRecord>>,
     toolchain: Arc<ActiveToolchain>,
+    log_collector: Arc<FileLogCollector>,
 }
 
 impl FunctionExecutor {
@@ -21,12 +26,18 @@ impl FunctionExecutor {
         environment: Environment,
         code: Arc<Box<UserFunctionRecord>>,
         toolchain: Arc<ActiveToolchain>,
+        log_collector: Arc<FileLogCollector>,
     ) -> Self {
-        info!("Function executor for {} started. Toolchain {:?}", code.name(), toolchain);
+        info!(
+            "Function executor for {} started. Toolchain {:?}",
+            code.name(),
+            toolchain
+        );
         FunctionExecutor {
             code,
             environment,
             toolchain,
+            log_collector,
         }
     }
 }
@@ -43,17 +54,29 @@ impl Handler<RawFunctionInput> for FunctionExecutor {
         &mut self,
         _ctx: &mut Context<Self>,
         msg: RawFunctionInput,
-    ) -> Result<RawFunctionOutput> {
-        info!("Running Function: '{}' with {:?}", self.code.name(), self.toolchain);
+    ) -> Result<RawFunctionOutputWrapper> {
+        let p = Parser::new(
+            STDOUT_PREFIX.to_string(),
+            vec![|v| hex::decode(v).ok(), |v| Some(v.as_bytes().to_vec())],
+        );
+
+        info!(
+            "Running Function: '{}' with {:?}",
+            self.code.name(),
+            self.toolchain
+        );
         let bytes = self.toolchain.build(&self.code.code().code).await?;
         info!("Built!");
-        let output = self
+        let stdout = self
             .toolchain
             .execute(bytes, msg, &self.environment)
-            .await
-            .map(RawFunctionOutput::from);
+            .await?;
+        self.log_collector
+            .collect(&stdout, &self.environment)
+            .await?;
+        let output = p.parse_to_map(Cursor::new(stdout))?;
         debug!("Function output: {:?}", output);
-        output
+        Ok(RawFunctionOutputWrapper::from(output))
     }
 }
 

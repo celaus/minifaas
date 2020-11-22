@@ -1,6 +1,7 @@
 use crate::runtime::RawFunctionInput;
 use crate::{FunctionExecutor, HttpTriggerMsg, OpsMsg, TimerTriggerMsg};
 use anyhow::Result;
+use async_std::sync::Arc;
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use log::{debug, error, info, warn};
@@ -8,10 +9,9 @@ use minifaas_common::triggers::http::HttpTrigger;
 use minifaas_common::triggers::http::HttpTriggerOutputs;
 use minifaas_common::triggers::timer::TimerTrigger;
 use std::collections::HashMap;
+use std::convert::From;
 use std::time::Duration;
 use xactor::*;
-
-use async_std::sync::Arc;
 
 #[derive(Default)]
 pub struct HttpTriggered {
@@ -42,8 +42,9 @@ impl Handler<HttpTrigger> for HttpTriggered {
         let result = match self.route_table.get(&msg.route) {
             Some(addr) => {
                 debug!("Found matching executor for '{}'", msg.route);
-                match addr.call(RawFunctionInput::from(msg)).await? {
-                    Ok(mut output) => Ok(output.into_http()),
+                let inputs: RawFunctionInput = msg.into();
+                match addr.call(inputs).await? {
+                    Ok(output) => Ok(output.into()),
                     _ => Err(Error::msg("Nothing found")),
                 }
             }
@@ -117,7 +118,7 @@ impl Handler<TimerTrigger> for TimerTriggered {
                     addrs.len(),
                     msg.when
                 );
-                let input = RawFunctionInput::from(msg);
+                let input: RawFunctionInput = msg.into();
                 let tasks = addrs.iter().map(|a| a.call(input.clone()));
                 let _ = join_all(tasks).await.into_iter().map(|r| match r {
                     Ok(_) => info!("Timer trigger went through ok."),

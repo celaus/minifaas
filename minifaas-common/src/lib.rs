@@ -6,7 +6,7 @@ pub mod triggers;
 mod types;
 
 pub use crate::types::*;
-pub use types::Trigger;
+pub use triggers::Trigger;
 use anyhow::Result;
 use async_std::path::PathBuf;
 pub use datastore::{DataStoreConfig, FaaSDataStore, UserFunctionRecord, UserFunctionType};
@@ -16,7 +16,6 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub use runtime::{FunctionInputs, FunctionOutputs, RuntimeRequest, RuntimeResponse};
-
 ///
 /// Creates and prepares the file system
 /// 
@@ -37,7 +36,7 @@ pub async fn sync_environments<P: Into<PathBuf>>(
         .items()
         .await
         .iter()
-        .map(|(_k, f)| (f.language(), f.environment_id))
+        .map(|(_k, f)| (*f.language(), f.environment_id))
         .collect::<Vec<(ProgrammingLanguage, Uuid)>>();
     let expected_env_ids: Vec<_> = ids.iter().map(|i| i.1).collect();
     Environment::sync_all(root.into(), &expected_env_ids).await
@@ -46,8 +45,8 @@ pub async fn sync_environments<P: Into<PathBuf>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::datastore::UserFunctionRecord;
-    use crate::types::HttpMethod;
+    use crate::{runtime::FunctionCode, datastore::UserFunctionRecord};
+    use crate::triggers::http::HttpMethod;
     use minifaas_test::get_empty_tmp_dir;
 
     #[async_std::test]

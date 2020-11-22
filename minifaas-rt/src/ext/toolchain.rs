@@ -1,16 +1,11 @@
 use crate::ext::bash::Bash;
 use crate::ext::bash::BashSetup;
 use crate::ext::deno::Deno;
-use crate::output_parser::{Parser, ReaderInput};
 use crate::DenoSetup;
 use anyhow::Result;
-use log::info;
 use minifaas_common::runtime::RawFunctionInput;
 use minifaas_common::Environment;
-use std::collections::HashMap;
-use std::io::Cursor;
 
-const STDOUT_PREFIX: &str = "__MF__";
 
 #[derive(Debug, Clone)]
 pub enum ActiveToolchain {
@@ -34,21 +29,18 @@ impl ActiveToolchain {
         code: Vec<u8>,
         input: RawFunctionInput,
         env: &Environment,
-    ) -> Result<HashMap<String, Vec<u8>>> {
-        let stdout = match self {
+    ) -> Result<String> {
+        match self {
             ActiveToolchain::Deno(deno) => {
                 deno.pre_execute(&input).await?;
-                deno._execute(code, &input, env).await?
+                deno._execute(code, &input, env).await
             }, 
             ActiveToolchain::Bash(bash) => {
                 bash.pre_execute(&input).await?;
-                bash._execute(code, &input, env).await?
+                bash._execute(code, &input, env).await
             },
-            _ => String::new(),
-        };
-        info!("STDOUT of '{}': {}", env.id, stdout);
-        let p = Parser::new(STDOUT_PREFIX.to_string());
-        p.parse_to_map(Cursor::new(stdout))
+            _ => Ok(String::new()),
+        }
     }
 }
 

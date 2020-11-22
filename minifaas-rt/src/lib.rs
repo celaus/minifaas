@@ -1,5 +1,6 @@
 mod ext;
 pub mod languages;
+mod logs;
 mod output_parser;
 
 use crate::ext::bash::Bash;
@@ -9,6 +10,7 @@ use crate::ext::deno::DenoSetup;
 use crate::ext::toolchain::ActiveToolchain;
 use crate::ext::toolchain::BuildToolchain;
 use crate::languages::ToolchainMap;
+use crate::logs::collectors::FileLogCollector;
 use log::{debug, error, info, trace, warn};
 use minifaas_common::*;
 use std::sync::Arc;
@@ -58,6 +60,20 @@ impl RuntimeConnection {
                 .call(OpsMsg::Shutdown)
                 .await
                 .map(|_| RuntimeResponse::Ok),
+
+            RuntimeRequest::FetchLogs {
+                env_id,
+                start_line,
+                lines,
+            } => self
+                .controller_addr
+                .call(LogsMsg {
+                    env_id,
+                    start_line,
+                    lines,
+                })
+                .await?
+                .map(|s| RuntimeResponse::LogResponse(s)),
             RuntimeRequest::FunctionCall(_, inputs) => match inputs {
                 FunctionInputs::Http(inp) => {
                     self.http_addr.call(inp).await?.map(RuntimeResponse::from)
@@ -69,7 +85,21 @@ impl RuntimeConnection {
                     .controller_addr
                     .call(SetupMsg {
                         env_id: code.environment_id,
-                        toolchain: code.language(),
+                        toolchain: *code.language(),
+                    })
+                    .await?;
+
+                self.controller_addr
+                    .call(StartExecutorMsg { code })
+                    .await
+                    .map(|_| RuntimeResponse::Ok)
+            }
+            RuntimeRequest::DeleteFunction(code) => {
+                let _ = self
+                    .controller_addr
+                    .call(SetupMsg {
+                        env_id: code.environment_id,
+                        toolchain: *code.language(),
                     })
                     .await?;
 
@@ -83,6 +113,7 @@ impl RuntimeConnection {
                 .call(StopExecutorMsg { code })
                 .await
                 .map(|_| RuntimeResponse::Ok),
+                
             _ => Ok(RuntimeResponse::FunctionRuntimeUnavailable(
                 ProgrammingLanguage::JavaScript,
             )),
@@ -141,6 +172,7 @@ pub async fn create_runtime(
     let _http2 = _http.clone();
     let _timer = Supervisor::start(move || TimerTriggered::new(timer_resolution)).await?;
     let _timer2 = _timer.clone();
+    let log_collector = Arc::new(FileLogCollector::new("logs"));
 
     let _env_setup = Supervisor::start(move || {
         RuntimeController::new(
@@ -148,6 +180,7 @@ pub async fn create_runtime(
             setup_map.clone(),
             _http2.clone(),
             _timer2.clone(),
+            log_collector.clone(),
         )
     })
     .await?;
@@ -156,7 +189,7 @@ pub async fn create_runtime(
     let setup: Vec<Result<_>> = join_all(deployments.values().await.iter().map(|v| {
         _env_setup.call(SetupMsg {
             env_id: v.environment_id,
-            toolchain: v.language(),
+            toolchain: *v.language(),
         })
     }))
     .await;

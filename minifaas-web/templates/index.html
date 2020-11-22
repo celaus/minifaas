@@ -14,18 +14,21 @@
     <div class="container">
         <div class="row mt-3 border-bottom">
             <div class="col-lg-4">
-                <h1>MiniFaaS</h1>
+                <a href="/">
+                    <h1>MiniFaaS</h1>
+                </a>
             </div>
             <div class="col-lg-8 text-muted">
                 <p># of active runtimes: 1</p>
                 <p>Functions: {{ functions.len() }}</p>
             </div>
         </div>
-
+        <div class="row mt-3">
+            <div class="col-lg-4"><a href="/">new</a></div>
+        </div>
         <div class="row mt-3">
             <div class="col-lg-4">
                 <div class="accordion" id="fn-list">
-
                     {% for func in functions %}
                     <div class="card" id="fn-card-{{ func.name() }}">
                         <div class="card-header" id="fn-header-{{ func.name() }}">
@@ -34,13 +37,16 @@
                                     data-target="#fn-body-{{ func.name() }}" aria-expanded="true"
                                     aria-controls="fn-body-{{ func.name() }}">
                                     {{ func.name() }}
-
                                 </button>
                             </h2>
                         </div>
-
-                        <div id="fn-body-{{ func.name() }}" class="collapse"
-                            aria-labelledby="fn-header-{{ func.name() }}" data-parent="#fn-list">
+                        {% let _show -%}
+                        {% if loop.first  %}
+                            {% let _show =  "" -%} {# set to show to expand an accordeon element #}
+                        {% else %}
+                            {% let _show =  "" -%}
+                        {% endif %}
+                        <div id="fn-body-{{ func.name() }}" class="collapse {{ _show }}" aria-labelledby="fn-header-{{ func.name() }}" data-parent="#fn-list">
                             <div class="card-body">
                                 <p>{{func.language()}}</p>
                                 <p>{{func.trigger()}}</p>
@@ -48,8 +54,7 @@
 
                                 <button>Disable</button>
                                 <button onclick="removeFunction('{{ func.name() }}')">Remove</button>
-                                <button
-                                    onclick="selectToShow('{{ func.name() }}', '{{ func.code() }}', '{{ func.trigger() }}')">Edit</button>
+                                <a href="/?show={{ func.name() }}">Edit</a>
                             </div>
                         </div>
                     </div>
@@ -68,7 +73,7 @@
             <div class="col-lg-8">
                 <div class="row">
                     <div class="col-lg-12 mb-3 ml-3 pl-0">
-                        <div class="alert alert-success alert-dismissible fade hide" role="alert" id="alert-ok">
+                        <div class="alert alert-danger alert-dismissible collapse" role="alert" id="alert-ok">
                             <span id="alert-ok-text">
 
                             </span>
@@ -79,98 +84,19 @@
                     </div>
                 </div>
 
+                {% if selected.is_some() %}
+                    {% let idx = selected.unwrap() -%}
+                    {% if idx < functions.len() -%}
+                        {% let selected_function = functions[idx] -%}
+                        {% include "partial/edit.html" %}
+                    {% else %}
+                        {% include "partial/new.html" %}
+                    {% endif %}
+                {% else %}
+                    {% include "partial/new.html" %}
+                {% endif %}
 
-                <div class="form-group row">
-                    <label class="col-sm-2 col-form-label" for="fn-name">
-                        Name/Path
-                    </label>
-                    <div class="col-sm-10">
-                        <input id="fn-name" type="text" class="form-control" aria-label="Name and trigger">
-                    </div>
-                </div>
 
-
-                <div class="row">
-                    <div class="col-lg-12">
-                        <fieldset class="form-group row">
-
-                            <legend class="col-form-label col-lg-2 pt-0">Triggers</legend>
-
-                            <div class="col-lg-10">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="gridRadios" id="gridRadios1"
-                                        value="http">
-                                    <label class="form-check-label" for="gridRadios1">
-                                        <select class="custom-select form-control" id="fn-trigger-select">
-                                            <option selected>Choose...</option>
-                                            {% for trigger in http_triggers %}
-                                            <option value="{{ trigger }}">{{ trigger }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </label>
-                                </div>
-
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="gridRadios" id="gridRadios2"
-                                        value="timer">
-                                    <label class="form-check-label row" for="gridRadios2">
-                                        <label class="col-lg-5 col-form-label" for="fn-trigger-cron">
-                                            Interval (CRON)
-                                        </label>
-                                        <div class="col-lg-7">
-                                            <input id="fn-trigger-cron" type="text" class="form-control"
-                                                aria-label="Cron">
-                                        </div>
-                                    </label>
-                                </div>
-
-                                <div class="form-check disabled">
-                                    <input class="form-check-input" type="radio" name="gridRadios" id="gridRadios3"
-                                        value="disabled" checked>
-                                    <label class="form-check-label" for="gridRadios3">
-                                        Disable
-                                    </label>
-                                </div>
-                            </div>
-                        </fieldset>
-                    </div>
-                </div>
-
-                <div class="row">
-                    <div class="col-lg-12 mb-3 ml-3 pl-0 border">
-                        <textarea id="editor">Code goes here</textarea>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="offset-md-10 col-md2">
-                        <select class="custom-select form-control" id="fn-lang-select">
-                            <option selected>Choose...</option>
-                            {% for lang in programming_languages %}
-                            <option value="{{ lang }}">{{ lang }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
-                <div class="row">
-
-                    <div class="offset-md-10 col-lg-1">
-                        <button onclick="" type="button" class="btn btn-primary">&gt;</button>
-                    </div>
-                    <div class="col-lg-1">
-                        <button onclick="saveFunction()" type="button" class="btn btn-success">Save</button>
-                    </div>
-                </div>
-
-                <div class="row">
-                    <div class="col-lg-12">
-                        <h2>Log</h2>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-lg-12">
-                        <pre class="pre-scrollable">$</pre>
-                    </div>
-                </div>
             </div>
         </div>
     </div>

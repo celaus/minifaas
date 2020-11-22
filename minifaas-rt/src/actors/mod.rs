@@ -1,8 +1,8 @@
-use minifaas_common::ProgrammingLanguage;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
+use minifaas_common::ProgrammingLanguage;
 
-use minifaas_common::HttpMethod;
+use minifaas_common::triggers::http::HttpMethod;
 use minifaas_common::UserFunctionRecord;
 use uuid::Uuid;
 use xactor::*;
@@ -20,6 +20,19 @@ pub use triggered::{HttpTriggered, TimerTriggered};
 pub struct SetupMsg {
     pub env_id: Uuid,
     pub toolchain: ProgrammingLanguage,
+}
+
+#[message(result = "anyhow::Result<()>")]
+pub struct DestroyMsg {
+    pub env_id: Uuid,
+}
+
+
+#[message(result = "anyhow::Result<String>")]
+pub struct LogsMsg {
+    pub env_id: Uuid,
+    pub start_line: usize,
+    pub lines: usize,
 }
 
 #[message(result = "anyhow::Result<()>")]

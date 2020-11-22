@@ -1,4 +1,4 @@
-use minifaas_common::HttpMethod;
+use minifaas_common::triggers::http::HttpMethod;
 use std::collections::HashMap;
 use tide::http::headers::{HeaderName, HeaderValues};
 use tide::StatusCode;

@@ -21,41 +21,68 @@ async function selectToShow(name, code, trigger) {
   return true;
 }
 
+async function getTrigger() {
+  let trigger = {};
+    switch ( $("input[name='fn-trigger-options']:checked").val()) {
+      case "http":
+        const http_trigger = $("#fn-trigger-select").val();
+        trigger = {
+          "type": "Http",
+          "when": http_trigger.match(HTTP_TRIGGER_PARSER)[1]
+        };    
+        break;
+      case "timer":
+        const cron_exp =  $("#fn-trigger-cron").val();
+        trigger = {
+          "type": "Interval",
+          "when": cron_exp.trim()
+        };    
+        break;
+      default:
+        trigger = {
+          "type": "None",
+        }
+        break;
+    }
+    return trigger;
+}
+
+
 async function saveFunction() {
   let name = document.getElementById("fn-name").value;
   if (name.trim()) {
-    const http_trigger = document.getElementById("fn-trigger-select").value;
     const lang = document.getElementById("fn-lang-select").value;
 
-    console.log(http_trigger);
     let code = editor.getValue();
+    const trigger = await getTrigger();
+    
     let payload = {
-      "id": name,
+      "id": "",
       "name": name,
       "code": code,
-      "trigger": {
-        "type": "Http",
-        "when": http_trigger.match(HTTP_TRIGGER_PARSER)[1]
-      },
+      "trigger": trigger,
       "language": { "lang": lang },
       "timestamp": new Date().toISOString()
     };
+    console.log(payload);
     await fetch(API_URL, {
       method: 'put',
       headers: {
         "Content-type": "application/json; charset=UTF-8"
       },
       body: JSON.stringify(payload)
-    }).then(resp => {
+    }).then(async resp => {
       if (resp.ok) {
-        $("#alert-ok-text").html("Saved!").show();
+        window.location("/?show=" + name);
       } else {
-        $("#alert-ok-text").html("bad news").show();
+        const response_text = await resp.text();
+        $("#alert-ok-text").text(`Couldn't save function: ${ response_text }`);
+        $("#alert-ok").show();
       }
     })
   }
   else {
-    $("#alert-ok-text").html("NEIN").show();
+    $("#alert-ok-text").text("NEIN").show();
   }
 }
 
@@ -63,6 +90,11 @@ async function removeFunction(name) {
   await fetch(`${API_URL}/${name}`, {
     method: 'delete'
   }).then(_ => location.reload())
+}
+
+async function fetchLogs(name) {
+  let logs = await fetch(`/f/logs/${name}/0/1000?format=html`);
+  $("#fn-logs").html(await logs.text());
 }
 
 async function callFunction(name) {
@@ -84,3 +116,13 @@ async function callFunction(name) {
     body: JSON.stringify(payload)
   }));
 }
+
+
+$(document).ready(function() { 
+  setInterval(async () => {
+    if ($("#fn-name").val()) {
+      const name = $("#fn-name").val();
+      await fetchLogs(name);
+    }
+  }, 1000)
+ });
