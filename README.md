@@ -31,9 +31,9 @@ These are just some of my ideas, share yours!
 So far, the function runtime has a minimal feature set to start with:
 
 - HTTP trigger
-- Vanilla JavaScript as a function language (via Ducc/Duktape)
+- JavaScript/Typescript support via [Deno](https://deno.land)
 - An ugly Web UI incl. code editor
-- Threaded code execution
+- Actor-based multi-threaded async code execution
 - CRUD for Function code via APIs/UI
 
 ## Planned

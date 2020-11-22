@@ -1,0 +1,111 @@
+<div class="form-group row">
+    <label class="col-sm-2 col-form-label" for="fn-name">
+        Name/Path
+    </label>
+    <div class="col-sm-10">
+        <input id="fn-name" type="text" class="form-control" aria-label="Name and http path" value="{{ selected_function.name() }}">
+    </div>
+</div>
+
+
+<div class="row">
+    <div class="col-lg-12">
+        <fieldset class="form-group row">
+
+            <legend class="col-form-label col-lg-2 pt-0">Triggers</legend>
+            <div class="col-lg-10">
+                <div class="form-check">
+                    {% if selected_function.trigger().is_http() %}
+                    <input class="form-check-input" type="radio" name="fn-trigger-options" id="fn-trigger-options1"
+                        value="http" checked>
+                    {% else %}
+                    <input class="form-check-input" type="radio" name="fn-trigger-options" id="fn-trigger-options1"
+                        value="http">
+                    {% endif %}
+                    <label class="form-check-label" for="fn-trigger-options1">
+                        <select class="custom-select form-control" id="fn-trigger-select">
+                            <option selected>Choose...</option>
+                            {% for trigger in http_triggers %}
+                                {% if selected_function.trigger().is_http() && trigger == selected_function.trigger() %}
+                                <option value="{{ trigger }}" selected>{{ trigger }}</option>
+                                {%else %}
+                                <option value="{{ trigger }}">{{ trigger }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </label>
+                </div>
+
+                <div class="form-check">
+                    {% if selected_function.trigger().is_timer() %}
+                    <input class="form-check-input" type="radio" name="fn-trigger-options" id="fn-trigger-options2"
+                        value="timer" checked>
+                    {% else %}
+                    <input class="form-check-input" type="radio" name="fn-trigger-options" id="fn-trigger-options2"
+                        value="timer">
+                    {% endif %}
+                    <label class="form-check-label row" for="fn-trigger-options2">
+                        <label class="col-lg-5 col-form-label" for="fn-trigger-cron">
+                            Interval (CRON)
+                        </label>
+                        <div class="col-lg-7">
+                            <input id="fn-trigger-cron" type="text" class="form-control" aria-label="Cron" value="{{ selected_function.trigger() }} ">
+                        </div>
+                    </label>
+                </div>
+
+                <div class="form-check">
+                    {% if selected_function.trigger().is_disabled() %}
+                    <input class="form-check-input" type="radio" name="fn-trigger-options" id="fn-trigger-options3"
+                        value="disabled" checked>
+                    {% else %}
+                    <input class="form-check-input" type="radio" name="fn-trigger-options" id="fn-trigger-options3"
+                        value="disabled">
+                    {% endif %}
+                    <label class="form-check-label" for="fn-trigger-options3">
+                        Disable
+                    </label>
+                </div>
+            </div>
+        </fieldset>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-12 mb-3 ml-3 pl-0 border">
+        <textarea id="editor">{{ selected_function.code() }}</textarea>
+    </div>
+</div>
+<div class="row">
+    <div class="offset-md-10 col-md2">
+        <select class="custom-select form-control" id="fn-lang-select">
+            <option selected>Choose...</option>
+            {% for lang in programming_languages %}
+                {% if selected_function.language() == lang %}
+                <option value="{{ lang }}" selected>{{ lang }}</option>
+                {%else %}
+                <option value="{{ lang }}">{{ lang }}</option>
+                {% endif %}
+            {% endfor %}
+        </select>
+    </div>
+</div>
+<div class="row">
+    <div class="offset-md-10 col-lg-1">
+        <button onclick="" type="button" class="btn btn-primary">&gt;</button>
+    </div>
+    <div class="col-lg-1">
+        <button onclick="saveFunction()" type="button" class="btn btn-success">Save</button>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-12">
+        <h2>Log</h2>
+    </div>
+</div>
+<div class="row">
+    <div class="col-lg-12">
+        <div id="fn-logs" , class="pre-scrollable">$</div>
+    </div>
+</div>

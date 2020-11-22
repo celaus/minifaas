@@ -1,15 +1,17 @@
-use crate::errors::PreparationError::EnvironmentAddFailed;
 use anyhow::{Error as AnyError, Result};
 use async_std::fs::DirBuilder;
 use async_std::fs::File;
-use async_std::fs::{create_dir_all, read, write};
+use async_std::fs::{create_dir_all, read, remove_dir_all, write};
 use async_std::task;
 use log::info;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use std::fmt;
 use std::fs::read_dir;
 use std::iter::FromIterator;
 use std::path::PathBuf;
 use uuid::Uuid;
+
+use super::Environments;
 
 const ID_FILE_NAME: &str = ".minifaas-id";
 
@@ -49,42 +51,10 @@ impl Environment {
         Environment::create_with_id(root, env_id).await
     }
 
-    // ///
-    // /// Synchronizes a given directory by checking the id file
-    // ///
-    // pub async fn sync<S: Into<String>>(root: S, id: Uuid) -> io::Result<Self> {
-    //     let root = root.into();
-
-    //     match self.get_id_from(root).await {
-    //         Some(existing_id) => Environment::create_with_id(root, id)
-    //     }
-    //     match read_dir(&root) {
-    //         Err(_) => Environment::create(root).await,
-    //         Ok(contents) => {
-    //             if let Some(id_file) = contents
-    //                 .filter(|r| r.is_ok())
-    //                 .map(|e| e.unwrap().path())
-    //                 .filter(|e| e.ends_with(ID_FILE_NAME))
-    //                 .last()
-    //             // if there are multiple files, take the last one
-    //             {
-    //                 match read(id_file).await {
-    //                     Ok(b) => {
-    //                         if let Ok(id) = Uuid::from_slice(&b) {
-    //                             Ok(Environment { root, id })
-    //                         } else {
-    //                             Environment::create_with_id(root, id).await
-    //                         }
-    //                     }
-    //                     Err(_) => Environment::create_with_id(root, id).await,
-    //                 }
-    //             } else {
-    //                 Environment::create_with_id(root, id).await
-    //             }
-    //         }
-    //     }
-    // }
-
+    pub async fn delete(&mut self) -> Result<()> {
+        remove_dir_all(&self.root).await.map_err(AnyError::from)
+    }
+    
     ///
     /// Checks whether an environment contains the file specified
     ///
@@ -212,58 +182,14 @@ impl Environment {
             .await?)
     }
 
-    pub async fn relative_path<S: Into<PathBuf>>(&self, sub_path: S) -> PathBuf {
+    pub async fn absolute_path<S: Into<PathBuf>>(&self, sub_path: S) -> PathBuf {
         PathBuf::from(&self.root).join(sub_path.into())
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Environments {
-    pub envs: HashMap<Uuid, Environment>,
-    root: PathBuf,
-}
-
-impl Environments {
-    pub fn new<P: Into<PathBuf>>(root_path: P, environments: HashMap<Uuid, Environment>) -> Self {
-        Environments {
-            root: root_path.into(),
-            envs: environments,
-        }
-    }
-
-    pub fn from_vec<P: Into<PathBuf>>(root_path: P, environments: Vec<Environment>) -> Self {
-        let inner: HashMap<_, _> = environments.into_iter().map(|e| (e.id, e)).collect();
-        Environments {
-            root: root_path.into(),
-            envs: inner,
-        }
-    }
-
-    ///
-    ///
-    ///
-    pub async fn get_or_create(&mut self, environment_id: Uuid) -> Result<&Environment> {
-        info!("Environment with id '{}' requested", environment_id);
-        if !self.envs.contains_key(&environment_id) {
-            info!("Creating '{}'", environment_id);
-            let new = Environment::create_with_id(
-                &self.root.join(&environment_id.to_string()),
-                environment_id,
-            )
-            .await?;
-            self.envs.insert(environment_id, new);
-        };
-        self.envs
-            .get(&environment_id)
-            .ok_or_else(|| EnvironmentAddFailed(self.root.to_str().unwrap().to_string()).into())
-    }
-
-    pub async fn get(&self, environment_id: &Uuid) -> Option<&Environment> {
-        self.envs.get(environment_id)
-    }
-
-    pub async fn count(&self) -> usize {
-        self.envs.len()
+impl fmt::Display for Environment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Environment {} at {}", self.id, self.root)
     }
 }
 

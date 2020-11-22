@@ -6,6 +6,7 @@ use async_std::task;
 use log::{debug, error, info, warn};
 use minifaas_common::runtime::RawFunctionInput;
 use std::io;
+use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -101,7 +102,7 @@ impl ToolchainLifecycle for Deno {
         env: &Environment,
     ) -> Result<String> {
         let exe = env
-            .relative_path(&self.local_path)
+            .absolute_path(&self.local_path)
             .await
             .into_os_string()
             .into_string()
@@ -137,24 +138,26 @@ impl ToolchainLifecycle for Deno {
         Ok(())
     }
 }
-use std::io::Read;
 #[async_trait::async_trait]
 impl ToolchainSetup for DenoSetup {
     async fn pre_setup(&mut self, env: &Environment) -> Result<()> {
         self.installed = env.has_file(&self.local_path).await;
+        info!("Is Deno installed in {}? {}", env, self.installed);
         Ok(())
     }
 
     async fn setup(&self, env: &Environment) -> Result<()> {
         if self.installed {
+            info!("Found Deno in {}, skipping setup", env);
             Ok(())
         } else {
+            info!("Could not find Deno in Env: {}", env);
             let origin = format!(
                 "https://github.com/denoland/deno/releases/download/v{}/deno-{}.zip",
                 self.version,
                 os_arch_tuple(&self.system)
             );
-            println!("{}", origin);
+            debug!("Downloading from '{}'", origin);
             let mut file = env.add_file(&self.local_path)?;
 
             task::spawn_blocking(move || {
@@ -172,6 +175,16 @@ impl ToolchainSetup for DenoSetup {
             })
             .await
         }
+    }
+
+    async fn post_setup(&self, env: &Environment) -> Result<()> {
+        if cfg!(target_family = "unix") {
+            use std::os::unix::fs::PermissionsExt;
+            let path = env.absolute_path(&self.local_path).await;
+            // permissions for this should be -rwxr-xr-x, or 755
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        Ok(())
     }
 }
 
@@ -203,16 +216,19 @@ mod tests {
     use minifaas_test::get_empty_tmp_dir;
     use uuid::Uuid;
 
+    async fn create_temp_env(expected_id: Option<Uuid>) -> Environment {
+        let root_dir = get_empty_tmp_dir();
+        let expected_id = expected_id.unwrap_or(Uuid::new_v4());
+        let env_path = root_dir.join(Uuid::new_v4().to_string());
+        Environment::create_with_id(env_path.clone(), expected_id)
+            .await
+            .unwrap()
+    }
+
     #[async_std::test]
     #[ignore] // download takes some time
     async fn denosetup_setup_download() {
-        let root_dir = get_empty_tmp_dir();
-        let expected_id = Uuid::new_v4();
-        let env_path = root_dir.join(Uuid::new_v4().to_string());
-        let e = Environment::create_with_id(env_path.clone(), expected_id)
-            .await
-            .unwrap();
-
+        let e = create_temp_env(None).await;
         let deno_setup = DenoSetup::default();
         deno_setup.setup(&e).await.unwrap();
         assert!(e.has_file("deno").await);
@@ -220,16 +236,24 @@ mod tests {
 
     #[async_std::test]
     async fn denosetup_presetup_download() {
-        let root_dir = get_empty_tmp_dir();
-        let expected_id = Uuid::new_v4();
-        let env_path = root_dir.join(Uuid::new_v4().to_string());
-        let e = Environment::create_with_id(env_path.clone(), expected_id)
-            .await
-            .unwrap();
-
+        let e = create_temp_env(None).await;
         let mut deno_setup = DenoSetup::default();
         e.add_file("deno").unwrap();
         deno_setup.pre_setup(&e).await.unwrap();
         assert!(deno_setup.installed);
+    }
+
+    #[async_std::test]
+    #[cfg(unix)]
+    async fn denosetup_postsetup_set_execute_flag() {
+        use std::os::unix::fs::PermissionsExt;
+        let filename = "deno";
+        let e = create_temp_env(None).await;
+
+        e.add_file(filename).unwrap();
+        DenoSetup::default().post_setup(&e).await.unwrap();
+        let meta = std::fs::metadata(e.absolute_path(filename).await).unwrap();
+        let perm = meta.permissions();
+        assert_eq!(0o100755, perm.mode());
     }
 }

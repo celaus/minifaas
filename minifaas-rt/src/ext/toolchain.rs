@@ -1,14 +1,16 @@
+use crate::ext::bash::Bash;
+use crate::ext::bash::BashSetup;
 use crate::ext::deno::Deno;
 use crate::DenoSetup;
 use anyhow::Result;
-use log::info;
 use minifaas_common::runtime::RawFunctionInput;
 use minifaas_common::Environment;
-use std::collections::HashMap;
+
 
 #[derive(Debug, Clone)]
 pub enum ActiveToolchain {
     Deno(Deno),
+    Bash(Bash),
     Noop,
 }
 
@@ -16,6 +18,8 @@ impl ActiveToolchain {
     pub async fn build(&self, code: &str) -> Result<Vec<u8>> {
         match self {
             ActiveToolchain::Deno(deno) => deno._build(code).await,
+            ActiveToolchain::Bash(bash) => bash._build(code).await,
+
             _ => Ok(vec![]),
         }
     }
@@ -25,18 +29,18 @@ impl ActiveToolchain {
         code: Vec<u8>,
         input: RawFunctionInput,
         env: &Environment,
-    ) -> Result<HashMap<String, Vec<u8>>> {
-        let stdout = match self {
+    ) -> Result<String> {
+        match self {
             ActiveToolchain::Deno(deno) => {
                 deno.pre_execute(&input).await?;
-                deno._execute(code, &input, env).await?
-            }
-            _ => String::new(),
-        };
-        info!("STDOUT of '{}': {}", env.id, stdout);
-        // TODO process stdout to hashmap
-
-        Ok(HashMap::default())
+                deno._execute(code, &input, env).await
+            }, 
+            ActiveToolchain::Bash(bash) => {
+                bash.pre_execute(&input).await?;
+                bash._execute(code, &input, env).await
+            },
+            _ => Ok(String::new()),
+        }
     }
 }
 
@@ -49,6 +53,7 @@ impl Default for ActiveToolchain {
 #[derive(Debug, Clone)]
 pub enum BuildToolchain {
     Deno(DenoSetup),
+    Bash(BashSetup),
     Noop,
 }
 
