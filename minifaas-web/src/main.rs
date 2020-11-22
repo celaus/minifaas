@@ -1,273 +1,76 @@
 mod config;
+mod defaults;
 mod utils;
 
-use crate::utils::convert_http_method;
-use anyhow::{Error as AnyError, Result};
-use askama::Template;
+mod routes;
+
+use routes::*;
+
+use anyhow::Result;
 use clap::{App as ClApp, Arg};
 use config::{read_config, Settings};
 use minifaas_rt::RuntimeConnection;
 
 use log::{debug, error, info, trace, warn};
-use minifaas_common::triggers::http::HttpTrigger;
 use minifaas_common::*;
 use minifaas_rt::{create_runtime, RuntimeConfiguration};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::convert::TryFrom;
+
 use std::fs::File;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use tide;
-use tide::http::headers::{HeaderName, HeaderValue};
-use tide::{Body, Request, Response, StatusCode};
+
 
 type AppSate = (Arc<FaaSDataStore>, RuntimeConnection);
+use routes::*;
 
-const MAX_RUNTIME_SECS: u64 = 300;
-const NO_RUNTIME_THREADS: usize = 10;
-
-mod models;
-use models::{IndexViewModel, LogViewModel};
-
-#[derive(Deserialize)]
-struct ReturnTypeOptions {
-    format: String,
-}
-
-#[derive(Deserialize)]
-struct MainPageShowFunction {
-    show: String,
-}
-
-impl ReturnTypeOptions {
-    pub fn format(&self) -> String {
-        self.format.to_lowercase()
-    }
-}
-
-///
-/// Call a function to
-///
-async fn call_function(mut req: Request<AppSate>) -> tide::Result {
-    let bytes = req.body_bytes().await?;
-
-    let (storage, runtime) = req.state();
-    let name = req.param("name")?.trim();
-    info!("Calling function '{}'", name);
-    if let Some(user_func) = storage.get(&name).await {
-        let query_params: HashMap<String, Option<Vec<String>>> = req.query().unwrap_or_default();
-        let req_headers = utils::headers_to_map(&mut req.iter()).await;
-        let func_output = runtime
-            .send(RuntimeRequest::FunctionCall(
-                user_func,
-                FunctionInputs::Http(HttpTrigger {
-                    route: name.to_owned(),
-                    params: query_params,
-                    body: bytes.to_vec(),
-                    headers: req_headers,
-                    method: convert_http_method(req.method()),
-                }),
-            ))
-            .await?;
-        debug!("Function output: {:?}", func_output);
-        match func_output {
-            RuntimeResponse::FunctionResponse(resp) => {
-                if let FunctionOutputs::Http(http) = resp {
-                    let mut builder = Response::new(
-                        StatusCode::try_from(http.status_code).unwrap_or(StatusCode::BadRequest),
-                    );
-                    builder.set_body(http.body);
-
-                    let response = http.headers.iter().fold(builder, |mut out, (n, v)| {
-                        let val = HeaderValue::from_str(v.as_ref().unwrap_or(&"".to_owned())).ok();
-                        let name =
-                            HeaderName::from_bytes(n.to_lowercase().as_bytes().to_vec()).ok();
-                        if val.is_some() && name.is_some() {
-                            out.insert_header(name.unwrap(), val.unwrap());
-                        }
-                        out
-                    });
-                    Ok(response)
-                } else {
-                    Err(utils::_400(format!("{:?}", resp)).await)
-                }
-            }
-            RuntimeResponse::FunctionRuntimeUnavailable(lang) => {
-                Err(utils::_400(format!("{}", lang)).await)
-            }
-            RuntimeResponse::FunctionExecutionError { message, context } => {
-                Err(utils::_400(context.join("\n")).await)
-            } // <- find a good way to return execution errors (stack traces etc)>
-            _ => Err(utils::_500("Some error message").await),
-        }
-    } else {
-        error!("Function with name '{}' not found", name);
-        Err(utils::_500("Some error message").await)
-    }
-}
-
-///
-/// API call to save a function using a JSON object.
-///
-async fn save_function(mut req: Request<AppSate>) -> tide::Result {
-    let item: UserFunctionDeclaration = req.body_json().await?;
-    let name = &item.name;
-    debug!(
-        "Name: {}, Trigger: {:?}, Code: {}",
-        name, item.trigger, item.code
+async fn start_runtime(settings: &Settings) -> Result<(Arc<FaaSDataStore>, RuntimeConnection)> {
+    // set up connections to aux projects
+    let _storage = Arc::new(
+        create_or_load_storage(DataStoreConfig::new(&settings.runtime.db_path, true)).await?,
     );
-    if !name.trim().is_empty() {
-        let (storage, connection) = req.state();
+    let predefined_envs = sync_environments(&settings.runtime.env_root, _storage.clone()).await?;
 
-        let new_record = match storage.get(&name).await {
-            Some(f) => {
-                // if a function is already saved it needs to be updated
-                let env_id = f.environment_id.clone();
-
-                // ... and for that we have to disable the function
-                connection.send(RuntimeRequest::Disable(f)).await?;
-
-                // ... and create a new record with the same environment as the old one
-                UserFunctionRecord::new(item.clone(), env_id)
-            }
-            None => UserFunctionRecord::from(item.clone()),
-        };
-
-        // replace the exisiting function
-        storage.set(name.clone(), new_record).await;
-        let code = storage
-            .get(&name)
-            .await
-            .ok_or_else(|| AnyError::msg(format!("Function couldn't be found: {}", name)))?;
-
-        connection.send(RuntimeRequest::NewFunction(code)).await?;
-        Ok(Response::new(StatusCode::Ok))
-    } else {
-        info!("ERROR :(");
-
-        Err(tide::Error::from_str(
-            StatusCode::BadRequest,
-            format!("Name '{}' is invalid", name),
-        ))
-    }
+    let runtime_connection = create_runtime(
+        RuntimeConfiguration::new(settings.runtime.no_threads, settings.runtime.timer_tick_ms),
+        predefined_envs,
+        _storage.clone(),
+    )
+    .await?;
+    Ok((_storage, runtime_connection))
 }
 
-async fn remove_function(req: Request<AppSate>) -> tide::Result {
-    let (storage, _) = req.state();
-    let name = req.param("name")?;
-    if !name.trim().is_empty() {
-        storage.delete(name).await;
-        Ok(Response::new(StatusCode::Ok))
-    } else {
-        Err(tide::Error::from_str(
-            StatusCode::BadRequest,
-            format!("Name '{}' is invalid", name),
-        ))
-    }
-}
-
-async fn get_function_code(req: Request<AppSate>) -> tide::Result {
-    let (storage, _) = req.state();
-    let name = req.param("name")?;
-    if let Some(user_func) = storage.get(name).await {
-        let mut response = Response::new(StatusCode::Ok);
-        response.set_body(Body::from_json(&user_func)?);
-        Ok(response)
-    } else {
-        Err(tide::Error::from_str(
-            StatusCode::BadRequest,
-            format!("{} not found", name),
-        ))
-    }
-}
-
-async fn get_logs(req: Request<AppSate>) -> tide::Result {
-    let (storage, connection) = req.state();
-    let name = req.param("name")?;
-    let output_format: ReturnTypeOptions = req.query().unwrap_or(ReturnTypeOptions {
-        format: "json".to_owned(),
+pub async fn start_web_server(
+    settings: &Settings,
+    storage: Arc<FaaSDataStore>,
+    runtime_channel: RuntimeConnection,
+) -> Result<()> {
+    //
+    // Set up routing and start the web server
+    //
+    let mut app = tide::with_state((storage.clone(), runtime_channel.clone()));
+    app.with(tide::log::LogMiddleware::new());
+    app.at("/assets").serve_dir("./minifaas-web/static")?;
+    app.at("/").get(index);
+    app.at("/api").nest({
+        let mut f = tide::with_state((storage.clone(), runtime_channel.clone()));
+        f.at("v1/f").put(save_function);
+        f.at("v1/f/:name").delete(remove_function);
+        f.at("v1/f").get(list_all_functions);
+        f.at("v1/logs/:name/:from/:lines").get(get_logs);
+        f
     });
-    let from = req.param("from")?.parse::<usize>()?;
-    let lines = req.param("lines")?.parse::<usize>()?;
-
-    if let Some(user_func) = storage.get(name).await {
-        let logs = connection
-            .send(RuntimeRequest::FetchLogs {
-                env_id: user_func.environment_id,
-                start_line: from,
-                lines: lines,
-            })
-            .await
-            .map(|r| {
-                if let RuntimeResponse::LogResponse(s) = r {
-                    s
-                } else {
-                    panic!("The Runtime returned the wrong response")
-                }
-            })?;
-        let view_model = LogViewModel { logs };
-        let mut resp = Response::new(StatusCode::Ok);
-        match output_format.format().as_str() {
-            "json" => {
-                resp.set_body(Body::from_json(&view_model)?);
-                Ok(resp)
-            }
-            "html" => {
-                let rendered = view_model.render()?;
-                resp.set_body(Body::from_string(rendered));
-                resp.set_content_type(http_types::Mime::from_str("text/html;charset=utf-8")?);
-                Ok(resp)
-            }
-            _ => {
-                resp.set_status(StatusCode::BadRequest);
-                Ok(resp)
-            }
-        }
-    } else {
-        Err(tide::Error::from_str(
-            StatusCode::BadRequest,
-            format!("{} not found", name),
-        ))
-    }
-}
-
-async fn list_all_functions(req: Request<AppSate>) -> tide::Result {
-    let (storage, _) = req.state();
-    let mut resp = Response::new(StatusCode::Ok);
-    resp.set_body(Body::from_json(&storage.values().await)?);
-    Ok(resp)
-}
-
-///
-/// The main page showing all active functions.
-///
-///
-async fn index(req: Request<AppSate>) -> tide::Result {
-    let (storage, _) = req.state();
-    let which: Option<MainPageShowFunction> = req.query().ok();
-    let functions = storage.values().await;
-    let selected = which
-        .map(|w| functions.iter().position(|f| f.name() == &w.show))
-        .flatten();
-    IndexViewModel {
-        functions,
-        http_triggers: Trigger::all_http(),
-        programming_languages: ProgrammingLanguage::available(),
-        selected,
-    }
-    .render()
-    .map(|body| {
-        let mut resp = Response::new(StatusCode::Ok);
-        resp.set_body(body);
-        resp.set_content_type(http_types::Mime::from_str("text/html;charset=utf-8").unwrap());
-        resp
-    })
-    .map_err(|_| tide::Error::from_str(StatusCode::InternalServerError, ":("))
+    app.at("/f/").nest({
+        let mut f = tide::with_state((storage.clone(), runtime_channel.clone()));
+        f.at("/call/:name").all(call_function);
+        f
+    });
+    app.listen(settings.server.endpoint.to_owned()).await?;
+    Ok(())
 }
 
 #[async_std::main]
+
 async fn main() -> Result<()> {
     let matches = ClApp::new("MiniFaaS")
         .version("0.1.0")
@@ -289,65 +92,25 @@ async fn main() -> Result<()> {
                 .takes_value(true)
                 .help("Sets the logging configuration [default: logging.yml]"),
         )
-        .arg(
-          Arg::with_name("environment")
-              .short("e")
-              .long("environment-root")
-              .value_name("/tmp")
-              .takes_value(true)
-              .help("Sets the configuration where the executables and file system for functions (i.e. their enviornments) should reside. Default: /tmp"),
-      )
         .get_matches();
 
     let config_filename = matches.value_of("config").unwrap_or("config.toml");
     let logging_filename = matches.value_of("logging").unwrap_or("logging.yml");
-    let env_root = matches.value_of("environment").unwrap_or("/tmp");
+
+    log4rs::init_file(logging_filename, Default::default()).expect("Could not initialize log4rs.");
 
     info!(
         "Using configuration file '{}' and logging config '{}'",
         config_filename, logging_filename
     );
-
-    log4rs::init_file(logging_filename, Default::default()).expect("Could not initialize log4rs.");
-    let mut f = File::open(config_filename).expect("Could not open config file.");
-    let settings: Settings = read_config(&mut f).expect("Could not read config file.");
-
     debug!(
         "serialized {}",
         serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()
     );
-    // set up connections to aux projects
-    let _storage =
-        Arc::new(create_or_load_storage(DataStoreConfig::new("functions.db", true)).await?);
-    let predefined_envs = sync_environments(env_root, _storage.clone()).await?;
-    let runtime_channel = create_runtime(
-        RuntimeConfiguration::new(NO_RUNTIME_THREADS, 100_000),
-        predefined_envs,
-        _storage.clone(),
-    )
-    .await?;
+    let mut f = File::open(config_filename).expect("Could not open config file.");
+    let settings: Settings = read_config(&mut f).expect("Could not read config file.");
 
-    //
-    // Set up routing and start the web server
-    //
-    let mut app = tide::with_state((_storage.clone(), runtime_channel.clone()));
-    app.with(tide::log::LogMiddleware::new());
-    app.at("/assets").serve_dir("./minifaas-web/static")?;
-    app.at("/").get(index);
-    app.at("/api").nest({
-        let mut f = tide::with_state((_storage.clone(), runtime_channel.clone()));
-        f.at("v1/f").put(save_function);
-        f.at("v1/f/:name").delete(remove_function);
-        f.at("v1/functions").get(list_all_functions);
-        f
-    });
-    app.at("/f/").nest({
-        let mut f = tide::with_state((_storage.clone(), runtime_channel.clone()));
-        f.at("/call/:name").all(call_function);
-        f.at("/impl/:name").get(get_function_code);
-        f.at("/logs/:name/:from/:lines").get(get_logs);
-        f
-    });
-    app.listen(settings.server.endpoint).await?;
-    Ok(())
+    let (storage, runtime_channel) = start_runtime(&settings).await?;
+
+    start_web_server(&settings, storage, runtime_channel).await
 }

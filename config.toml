@@ -1,2 +1,9 @@
 [server]
 endpoint = "localhost:6200" # Eden-server address
+
+[runtime]
+db_path = "functions.db"
+env_root = "/tmp"
+no_threads = 10
+timer_tick_ms = 1000 
+max_runtime_secs = 500
