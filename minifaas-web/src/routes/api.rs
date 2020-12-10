@@ -33,8 +33,18 @@ impl ReturnTypeOptions {
 pub async fn save_function(mut req: Request<AppSate>) -> tide::Result {
     let item: UserFunctionDeclaration = req.body_json().await?;
     let name = &item.name;
+
+    // Check if the cron string is valid.
+    match &item.trigger {
+        Trigger::Interval(cron_str) => {
+            cron_str
+                .parse::<cron::Schedule>()
+                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        }
+        _ => (),
+    }
     debug!(
-        "Name: {}, Trigger: {:?}, Code: {}",
+        "Saving function with Name: {}, Trigger: {:?}, Code: {}",
         name, item.trigger, item.code
     );
     if !name.trim().is_empty() {
@@ -46,7 +56,16 @@ pub async fn save_function(mut req: Request<AppSate>) -> tide::Result {
                 let env_id = f.environment_id.clone();
 
                 // ... and for that we have to disable the function
-                connection.send(RuntimeRequest::Disable(f)).await?;
+                match connection.send(RuntimeRequest::Disable(f)).await {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        error!(
+                            "Couldn't disable the runtime for '{}' at this time. Aborting",
+                            env_id
+                        );
+                        Err(e)
+                    }
+                }?;
 
                 // ... and create a new record with the same environment as the old one
                 UserFunctionRecord::new(item.clone(), env_id)

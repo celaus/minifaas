@@ -1,8 +1,8 @@
 mod models;
-pub use models::LogViewModel;
-
+use crate::{API_VERSION, FUNC_CALL_PATH};
 use askama::Template;
 use minifaas_rt::RuntimeConnection;
+pub use models::LogViewModel;
 
 use log::{debug, error, info, trace, warn};
 use minifaas_common::*;
@@ -30,7 +30,10 @@ struct MainPageShowFunction {
 pub async fn index(req: Request<AppSate>) -> tide::Result {
     let (storage, _) = req.state();
     let which: Option<MainPageShowFunction> = req.query().ok();
-    let functions = storage.values().await;
+
+    let mut functions = storage.values().await;
+    functions.sort_by(|e1, e2| e1.name().cmp(e2.name()));
+
     let selected = which
         .map(|w| functions.iter().position(|f| f.name() == &w.show))
         .flatten();
@@ -39,6 +42,8 @@ pub async fn index(req: Request<AppSate>) -> tide::Result {
         http_triggers: Trigger::all_http(),
         programming_languages: ProgrammingLanguage::available(),
         selected,
+        base_url: "".to_owned(),
+        fn_base_path: format!("{}/{}", API_VERSION, FUNC_CALL_PATH),
     }
     .render()
     .map(|body| {

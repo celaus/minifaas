@@ -7,12 +7,15 @@ use crate::{
 };
 use anyhow::Result;
 use async_std::prelude::*;
+use cron::Schedule;
 use log::{debug, error, info, warn};
 use minifaas_common::Environments;
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 use xactor::*;
+
+use super::IntervalTriggerMsg;
 
 pub struct RuntimeController {
     environments: Environments,
@@ -57,7 +60,18 @@ impl RuntimeController {
                 self.http_trigger.call(sub).await?;
                 Ok(())
             }
-            _ => Ok(()),
+            Trigger::Interval(cron_str) => {
+                let schedule = cron_str
+                    .parse::<Schedule>()
+                    .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+                let sub = IntervalTriggerMsg::Subscribe {
+                    schedule,
+                    addr: addr,
+                };
+                self.timer_trigger.call(sub).await?;
+                Ok(())
+            }
+            Trigger::None => Ok(()),
         }
     }
 
@@ -143,7 +157,7 @@ impl Handler<DestroyMsg> for RuntimeController {
     async fn handle(&mut self, _ctx: &mut Context<Self>, msg: DestroyMsg) -> Result<()> {
         match self.environments.remove(&msg.env_id).await {
             Some(_) => {
-                info!("Environment '{}' successfully deleted.", msg.env_id);
+                debug!("Environment '{}' successfully deleted.", msg.env_id);
                 Ok(())
             }
             None => {
@@ -161,6 +175,7 @@ impl Handler<DestroyMsg> for RuntimeController {
 impl Handler<StartExecutorMsg> for RuntimeController {
     async fn handle(&mut self, _ctx: &mut Context<Self>, msg: StartExecutorMsg) -> Result<()> {
         let env_id = msg.code.environment_id;
+        debug!("Starting/replacing executors for env '{}'", env_id);
         match self.environments.get(&env_id).await {
             Some(env) => {
                 if let Some(toolchain) = self.setup_map.select_executor(&msg.code.language()) {
@@ -172,18 +187,23 @@ impl Handler<StartExecutorMsg> for RuntimeController {
                     )
                     .start()
                     .await?;
-
                     if let Some(existing) = self.executors.get(&env_id) {
-                        existing.call(OpsMsg::Shutdown).await?;
+                        // ignore result since it may be an error due to the executor already being shut down
+                        let _ = existing.call(OpsMsg::Shutdown).await.map_err(|e| {
+                            error!(
+                                "While shutting down the executor for '{}': {:?}. Ignoring.",
+                                env_id, e
+                            );
+                        });
                         self.unsubscribe_from_triggers(
                             &msg.code.name(),
                             existing.clone(),
-                            *msg.code.trigger(),
+                            msg.code.trigger().clone(),
                         )
                         .await?;
                     }
                     self.executors.insert(env_id, a.clone());
-                    self.subscribe_to_triggers(&msg, a.clone(), *msg.code.trigger())
+                    self.subscribe_to_triggers(&msg, a.clone(), msg.code.trigger().clone())
                         .await
                 } else {
                     Err(anyhow::Error::msg(format!(
@@ -211,7 +231,7 @@ impl Handler<StopExecutorMsg> for RuntimeController {
                     self.unsubscribe_from_triggers(
                         &msg.code.name(),
                         existing.clone(),
-                        *msg.code.trigger(),
+                        msg.code.trigger().clone(),
                     )
                     .await
                 } else {

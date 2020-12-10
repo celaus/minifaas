@@ -10,6 +10,8 @@ pub struct IndexViewModel {
     pub http_triggers: Vec<Trigger>,
     pub programming_languages: Vec<ProgrammingLanguage>,
     pub selected: Option<usize>,
+    pub base_url: String,
+    pub fn_base_path: String 
 }
 
 
@@ -19,3 +21,4 @@ pub struct IndexViewModel {
 pub struct LogViewModel {
     pub logs: String,
 }
+

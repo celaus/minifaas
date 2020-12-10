@@ -63,7 +63,8 @@ impl From<RawFunctionOutputWrapper> for HttpTriggerOutputs {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
 pub enum FnInputValue {
     Coll(Vec<String>),
     Raw(Vec<u8>),
@@ -74,7 +75,7 @@ pub enum FnInputValue {
 }
 
 #[xactor::message(result = "anyhow::Result<RawFunctionOutputWrapper>")]
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize)]
 pub struct RawFunctionInput(HashMap<String, FnInputValue>);
 
 impl From<HttpTrigger> for RawFunctionInput {

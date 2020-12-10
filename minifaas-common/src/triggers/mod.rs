@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-
 pub mod http;
 pub mod timer;
 use http::HttpMethod;
@@ -8,13 +6,12 @@ use http::HttpMethod;
 ///
 /// Represents a trigger for the Function as a Service function. Declares the required parameters and so on. Defaults to `None` which means disabled.
 ///
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
-#[serde(tag = "type", content = "when")]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Trigger {
     /// Execute on a specified HTTP call
     Http(HttpMethod),
 
-    Interval(Duration),
+    Interval(String),
 
     /// Disable a function
     None,

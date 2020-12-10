@@ -1,17 +1,19 @@
 use crate::runtime::RawFunctionInput;
-use crate::{FunctionExecutor, HttpTriggerMsg, OpsMsg, TimerTriggerMsg};
+use crate::{FunctionExecutor, HttpTriggerMsg, OpsMsg};
 use anyhow::Result;
-use async_std::sync::Arc;
 use chrono::{DateTime, Utc};
+use cron::Schedule;
 use futures::future::join_all;
 use log::{debug, error, info, warn};
 use minifaas_common::triggers::http::HttpTrigger;
 use minifaas_common::triggers::http::HttpTriggerOutputs;
 use minifaas_common::triggers::timer::TimerTrigger;
-use std::collections::HashMap;
-use std::convert::From;
+use std::collections::{BTreeMap, HashMap};
+use std::ops::Bound::Included;
 use std::time::Duration;
 use xactor::*;
+
+use super::IntervalTriggerMsg;
 
 #[derive(Default)]
 pub struct HttpTriggered {
@@ -62,7 +64,10 @@ impl Handler<HttpTriggerMsg> for HttpTriggered {
                 route,
                 addr,
                 method,
-            } => self.route_table.insert(route, addr),
+            } => {
+                debug!("New route subscribed: {}", route);
+                self.route_table.insert(route, addr)
+            }
             HttpTriggerMsg::Unsubscribe { route } => self.route_table.remove(&route),
         };
     }
@@ -78,16 +83,35 @@ impl Handler<OpsMsg> for HttpTriggered {
 }
 
 // ---------------------------------
+struct ScheduleAddr {
+    pub addr: Addr<FunctionExecutor>,
+    pub schedule: Schedule,
+}
+
+impl ScheduleAddr {
+    pub fn next(&self) -> DateTime<Utc> {
+        self.schedule.upcoming(Utc).next().unwrap()
+    }
+
+    pub fn id(&self) -> u64 {
+        self.addr.actor_id()
+    }
+}
+
 pub struct TimerTriggered {
-    route_table: HashMap<DateTime<Utc>, Vec<Addr<FunctionExecutor>>>,
+    schedules: HashMap<u64, ScheduleAddr>,
+    next: BTreeMap<DateTime<Utc>, Vec<Addr<FunctionExecutor>>>,
     resolution: Duration,
+    since: DateTime<Utc>,
 }
 
 impl TimerTriggered {
     pub fn new(resolution: Duration) -> Self {
         TimerTriggered {
-            route_table: HashMap::default(),
+            schedules: HashMap::default(),
+            next: BTreeMap::default(),
             resolution,
+            since: Utc::now(),
         }
     }
 }
@@ -111,41 +135,74 @@ impl Actor for TimerTriggered {
 impl Handler<TimerTrigger> for TimerTriggered {
     async fn handle(&mut self, _ctx: &mut Context<Self>, msg: TimerTrigger) {
         debug!("Triggering timer: {}", msg.when);
-        let _result = match self.route_table.get(&msg.when) {
-            Some(addrs) => {
-                debug!(
-                    "Found matching {} executors for '{}'",
-                    addrs.len(),
-                    msg.when
-                );
-                let input: RawFunctionInput = msg.into();
-                let tasks = addrs.iter().map(|a| a.call(input.clone()));
-                let _ = join_all(tasks).await.into_iter().map(|r| match r {
-                    Ok(_) => info!("Timer trigger went through ok."),
-                    Err(e) => warn!("One of the timer triggers failed: {:?}", e),
-                });
-            }
-            None => {}
-        };
+        let triggered: Vec<DateTime<Utc>> = self
+            .next
+            .range((Included(&self.since), Included(&msg.when)))
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        let addrs: Vec<_> = triggered
+            .iter()
+            .filter_map(|t| self.next.remove(t))
+            .flatten()
+            .collect();
+
+        let input: RawFunctionInput = msg.into();
+        let tasks: Vec<_> = addrs.iter().map(|a| a.call(input.clone())).collect();
+
+        let _ = join_all(tasks).await.into_iter().map(|r| match r {
+            Ok(_) => info!("Timer trigger went through ok."),
+            Err(e) => warn!("One of the timer triggers failed: {:?}", e),
+        });
+        let schedules = &self.schedules;
+        let new_next: Vec<_> = addrs
+            .iter()
+            .filter_map(|a| schedules.get(&a.actor_id()))
+            .collect();
+
+        for sa in new_next {
+            let next = sa.next();
+            self.next
+                .entry(next)
+                .and_modify(|e| e.push(sa.addr.clone()))
+                .or_insert(vec![sa.addr.clone()]);
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl Handler<TimerTriggerMsg> for TimerTriggered {
-    async fn handle(&mut self, _ctx: &mut Context<Self>, msg: TimerTriggerMsg) {
+impl Handler<IntervalTriggerMsg> for TimerTriggered {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, msg: IntervalTriggerMsg) {
         match msg {
-            TimerTriggerMsg::Subscribe { when, addr } => {
-                self.route_table
-                    .entry(when)
+            IntervalTriggerMsg::Subscribe { addr, schedule } => {
+                let sa = ScheduleAddr {
+                    addr: addr.clone(),
+                    schedule,
+                };
+
+                let next = sa.next();
+                self.schedules.entry(sa.id()).or_insert(sa);
+                self.next
+                    .entry(next)
                     .and_modify(|e| e.push(addr.clone()))
                     .or_insert(vec![addr]);
             }
-            TimerTriggerMsg::Unsubscribe { when, addr } => {
-                self.route_table.get_mut(&when).map(|e| {
-                    if let Some(p) = e.iter().position(|a| a == &addr) {
-                        e.remove(p);
+            IntervalTriggerMsg::Unsubscribe { schedule, addr } => {
+                let sa = ScheduleAddr {
+                    addr: addr.clone(),
+                    schedule,
+                };
+                let next = sa.next();
+                match self.schedules.remove(&sa.id()) {
+                    Some(_) => {
+                        self.next.entry(next).and_modify(|e| {
+                            if let Some(p) = e.iter().position(|a| a == &addr) {
+                                e.remove(p);
+                            }
+                        });
                     }
-                });
+                    _ => {}
+                }
             }
         };
     }

@@ -53,6 +53,10 @@ pub struct RuntimeConnection {
 }
 
 impl RuntimeConnection {
+
+    ///
+    ///
+    ///
     pub async fn send(&self, req: RuntimeRequest) -> Result<RuntimeResponse> {
         match req {
             RuntimeRequest::Shutdown => self
@@ -81,6 +85,7 @@ impl RuntimeConnection {
                 FunctionInputs::Timer(_) => Err(Error::msg("Cannot call timers explicitly")),
             },
             RuntimeRequest::NewFunction(code) => {
+                debug!("New function request received. {:?}", code);
                 let _ = self
                     .controller_addr
                     .call(SetupMsg {
@@ -88,11 +93,14 @@ impl RuntimeConnection {
                         toolchain: *code.language(),
                     })
                     .await?;
-
+                debug!("Setup completed for {:?}", code);
                 self.controller_addr
                     .call(StartExecutorMsg { code })
                     .await
-                    .map(|_| RuntimeResponse::Ok)
+                    .map(|_| {
+                        debug!("Started executors.");
+                        RuntimeResponse::Ok
+                    })
             }
             RuntimeRequest::DeleteFunction(code) => {
                 let _ = self

@@ -4,15 +4,18 @@ use crate::logs::collectors::LogCollector;
 use crate::output_parser::Parser;
 use crate::output_parser::ReaderInput;
 use crate::output_parser::STDOUT_PREFIX;
-use minifaas_common::runtime::{RawFunctionInput, RawFunctionOutputWrapper};
 use crate::OpsMsg;
 use anyhow::Result;
 use async_std::sync::Arc;
 use log::{debug, error, info, warn};
+use minifaas_common::runtime::{RawFunctionInput, RawFunctionOutputWrapper};
 use minifaas_common::Environment;
 use minifaas_common::UserFunctionRecord;
 use std::io::Cursor;
+use uuid::Uuid;
 use xactor::*;
+
+use super::EnvironmentIdMsg;
 
 pub struct FunctionExecutor {
     environment: Environment,
@@ -44,8 +47,10 @@ impl FunctionExecutor {
 
 #[async_trait::async_trait]
 impl Actor for FunctionExecutor {
-    // async fn started(&mut self, ctx: &mut Context<Self>) -> Result<()> {
-    // }
+    async fn started(&mut self, ctx: &mut Context<Self>) -> Result<()> {
+        debug!("Executor started for {:?}", self.code);
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -60,16 +65,16 @@ impl Handler<RawFunctionInput> for FunctionExecutor {
             vec![|v| hex::decode(v).ok(), |v| Some(v.as_bytes().to_vec())],
         );
 
-        info!(
+        debug!(
             "Running Function: '{}' with {:?}",
             self.code.name(),
             self.toolchain
         );
         let bytes = self.toolchain.build(&self.code.code().code).await?;
-        info!("Built!");
+        debug!("Built!");
         let stdout = self
             .toolchain
-            .execute(bytes, msg, &self.environment)
+            .execute(bytes, Arc::new(msg), &self.environment)
             .await?;
         self.log_collector
             .collect(&stdout, &self.environment)
@@ -86,5 +91,12 @@ impl Handler<OpsMsg> for FunctionExecutor {
         match msg {
             OpsMsg::Shutdown => _ctx.stop(None),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl Handler<EnvironmentIdMsg> for FunctionExecutor {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, msg: EnvironmentIdMsg) -> Result<Uuid> {
+        Ok(self.environment.id)
     }
 }

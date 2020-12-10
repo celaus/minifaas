@@ -78,3 +78,4 @@ impl From<HashMap<String, Vec<u8>>> for HttpTriggerOutputs {
         }
     }
 }
+

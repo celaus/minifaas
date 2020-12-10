@@ -5,7 +5,7 @@ use anyhow::Result;
 use async_std::task;
 use log::{debug, error, info, warn};
 use minifaas_common::runtime::RawFunctionInput;
-use std::io;
+use std::{sync::Arc, io};
 use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -91,14 +91,14 @@ impl ToolchainLifecycle for Deno {
         Ok(())
     }
 
-    async fn pre_execute(&self, _input: &RawFunctionInput) -> Result<()> {
+    async fn pre_execute(&self, _input: Arc<RawFunctionInput>) -> Result<()> {
         Ok(())
     }
 
     async fn _execute(
         &self,
         code: Vec<u8>,
-        input: &RawFunctionInput,
+        input: Arc<RawFunctionInput>,
         env: &Environment,
     ) -> Result<String> {
         let exe = env
@@ -109,12 +109,18 @@ impl ToolchainLifecycle for Deno {
             .expect("Invalid chars in path");
 
         let code = code.clone();
-        info!("CODE: {}", std::str::from_utf8(&code)?);
+        debug!(
+            "Executing on Deno: {} (length: {} chars)",
+            std::str::from_utf8(&code)?,
+            code.len()
+        );
         let default_args = self.default_args.clone();
-        info!("Starting execution with {}", exe);
+        debug!("Starting execution with {}", exe);
         task::spawn_blocking(move || {
             let mut child = Command::new(&*exe)
                 .args(default_args)
+                .env_clear()
+                .env("__MF__INPUTS", serde_json::to_string(&input)?)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .spawn()
@@ -142,7 +148,7 @@ impl ToolchainLifecycle for Deno {
 impl ToolchainSetup for DenoSetup {
     async fn pre_setup(&mut self, env: &Environment) -> Result<()> {
         self.installed = env.has_file(&self.local_path).await;
-        info!("Is Deno installed in {}? {}", env, self.installed);
+        debug!("Is Deno installed in {}? {}", env, self.installed);
         Ok(())
     }
 
@@ -151,7 +157,7 @@ impl ToolchainSetup for DenoSetup {
             info!("Found Deno in {}, skipping setup", env);
             Ok(())
         } else {
-            info!("Could not find Deno in Env: {}", env);
+            warn!("Could not find Deno in Env: {}, downloading", env);
             let origin = format!(
                 "https://github.com/denoland/deno/releases/download/v{}/deno-{}.zip",
                 self.version,

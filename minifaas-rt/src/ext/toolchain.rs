@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::ext::bash::Bash;
 use crate::ext::bash::BashSetup;
 use crate::ext::deno::Deno;
@@ -5,7 +7,6 @@ use crate::DenoSetup;
 use anyhow::Result;
 use minifaas_common::runtime::RawFunctionInput;
 use minifaas_common::Environment;
-
 
 #[derive(Debug, Clone)]
 pub enum ActiveToolchain {
@@ -27,18 +28,18 @@ impl ActiveToolchain {
     pub async fn execute(
         &self,
         code: Vec<u8>,
-        input: RawFunctionInput,
+        input: Arc<RawFunctionInput>,
         env: &Environment,
     ) -> Result<String> {
         match self {
             ActiveToolchain::Deno(deno) => {
-                deno.pre_execute(&input).await?;
-                deno._execute(code, &input, env).await
-            }, 
+                deno.pre_execute(input.clone()).await?;
+                deno._execute(code, input, env).await
+            }
             ActiveToolchain::Bash(bash) => {
-                bash.pre_execute(&input).await?;
-                bash._execute(code, &input, env).await
-            },
+                bash.pre_execute(input.clone()).await?;
+                bash._execute(code, input, env).await
+            }
             _ => Ok(String::new()),
         }
     }
@@ -123,14 +124,14 @@ pub trait ToolchainLifecycle {
         Ok(())
     }
 
-    async fn pre_execute(&self, _input: &RawFunctionInput) -> Result<()> {
+    async fn pre_execute(&self, _input: Arc<RawFunctionInput>) -> Result<()> {
         Ok(())
     }
 
     async fn _execute(
         &self,
         code: Vec<u8>,
-        input: &RawFunctionInput,
+        _input: Arc<RawFunctionInput>,
         env: &Environment,
     ) -> Result<String>;
 

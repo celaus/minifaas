@@ -5,11 +5,11 @@ use anyhow::Result;
 use async_std::task;
 use log::{debug, error, info, warn};
 use minifaas_common::runtime::RawFunctionInput;
-use std::env;
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::{env, sync::Arc};
 
 pub const DEFAULT_VERSION: &str = "3.2.57";
 const DEFAULT_BASH_EXE_NAME: &str = "bash";
@@ -81,25 +81,31 @@ impl ToolchainLifecycle for Bash {
         Ok(())
     }
 
-    async fn pre_execute(&self, _input: &RawFunctionInput) -> Result<()> {
+    async fn pre_execute(&self, _input: Arc<RawFunctionInput>) -> Result<()> {
         Ok(())
     }
 
     async fn _execute(
         &self,
         code: Vec<u8>,
-        input: &RawFunctionInput,
-        env: &Environment,
+        input: Arc<RawFunctionInput>,
+        _env: &Environment,
     ) -> Result<String> {
         let exe = self.local_path.clone(); // bash should be in everyone's path on Linux
 
         let code = code.clone();
-        info!("CODE ({}): {}",code.len(), std::str::from_utf8(&code)?);
+        debug!(
+            "Executing on Bash: {} (length: {} chars)",
+            std::str::from_utf8(&code)?,
+            code.len()
+        );
         let default_args = self.default_args.clone();
-        info!("Starting execution with {}", exe);
+        debug!("Starting execution with {}", exe);
         task::spawn_blocking(move || {
             let mut child = Command::new(&*exe)
                 .args(default_args)
+                .env_clear()
+                .env("__MF__INPUTS", serde_json::to_string(&input)?)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .spawn()
@@ -131,7 +137,7 @@ impl ToolchainSetup for BashSetup {
             .arg("--version")
             .spawn()
             .is_ok();
-        info!("Is Bash available? {}", self.installed);
+        debug!("Is Bash available? {}", self.installed);
         Ok(())
     }
 
@@ -139,7 +145,7 @@ impl ToolchainSetup for BashSetup {
         if self.installed {
             Ok(())
         } else {
-            info!("Could not find Bash in Env: {}", env);
+            error!("Could not find Bash in Env: {}", env);
             Err(anyhow::Error::msg("No Bash executable available"))
         }
     }

@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 use minifaas_common::ProgrammingLanguage;
 
@@ -12,6 +11,7 @@ use async_std::sync::Arc;
 mod function_executor;
 mod runtime_controller;
 mod triggered;
+use cron::Schedule;
 pub use function_executor::FunctionExecutor;
 pub use runtime_controller::RuntimeController;
 pub use triggered::{HttpTriggered, TimerTriggered};
@@ -26,7 +26,6 @@ pub struct SetupMsg {
 pub struct DestroyMsg {
     pub env_id: Uuid,
 }
-
 
 #[message(result = "anyhow::Result<String>")]
 pub struct LogsMsg {
@@ -59,13 +58,13 @@ pub enum HttpTriggerMsg {
 }
 
 #[message]
-pub enum TimerTriggerMsg {
+pub enum IntervalTriggerMsg {
     Subscribe {
-        when: DateTime<Utc>,
+        schedule: Schedule,
         addr: Addr<FunctionExecutor>,
     },
     Unsubscribe {
-        when: DateTime<Utc>,
+        schedule: Schedule,
         addr: Addr<FunctionExecutor>,
     },
 }
@@ -74,3 +73,6 @@ pub enum TimerTriggerMsg {
 pub enum OpsMsg {
     Shutdown,
 }
+
+#[message(result = "anyhow::Result<Uuid>")]
+pub struct EnvironmentIdMsg {}

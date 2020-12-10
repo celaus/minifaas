@@ -47,9 +47,12 @@ async function getTrigger() {
     return trigger;
 }
 
-
-async function saveFunction() {
+async function saveNewFunction() {
   let name = document.getElementById("fn-name").value;
+  saveFunction(name);
+}
+
+async function saveFunction(name) {
   if (name.trim()) {
     const lang = document.getElementById("fn-lang-select").value;
 
@@ -73,7 +76,9 @@ async function saveFunction() {
       body: JSON.stringify(payload)
     }).then(async resp => {
       if (resp.ok) {
-        window.location("/?show=" + name);
+        $("#alert-ok-text").text(`Couldn't save function: ${ name }`);
+        $("#alert-ok").show();
+        //window.location = "/?show=" + name;
       } else {
         const response_text = await resp.text();
         $("#alert-ok-text").text(`Couldn't save function: ${ response_text }`);
@@ -93,7 +98,7 @@ async function removeFunction(name) {
 }
 
 async function fetchLogs(name) {
-  let logs = await fetch(`/f/logs/${name}/0/1000?format=html`);
+  let logs = await fetch(`/api/v1/logs/${name}/0/1000?format=html`);
   $("#fn-logs").html(await logs.text());
 }
 

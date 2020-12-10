@@ -19,10 +19,8 @@ use std::fs::File;
 use std::sync::Arc;
 
 use tide;
-
-
-type AppSate = (Arc<FaaSDataStore>, RuntimeConnection);
-use routes::*;
+const FUNC_CALL_PATH: &str = "f";
+const API_VERSION: &str = "v1";
 
 async fn start_runtime(settings: &Settings) -> Result<(Arc<FaaSDataStore>, RuntimeConnection)> {
     // set up connections to aux projects
@@ -54,10 +52,14 @@ pub async fn start_web_server(
     app.at("/").get(index);
     app.at("/api").nest({
         let mut f = tide::with_state((storage.clone(), runtime_channel.clone()));
-        f.at("v1/f").put(save_function);
-        f.at("v1/f/:name").delete(remove_function);
-        f.at("v1/f").get(list_all_functions);
-        f.at("v1/logs/:name/:from/:lines").get(get_logs);
+        f.at(&format!("{}/{}", API_VERSION, FUNC_CALL_PATH))
+            .put(save_function);
+        f.at(&format!("{}/{}/:name", API_VERSION, FUNC_CALL_PATH))
+            .delete(remove_function);
+        f.at(&format!("{}/{}", API_VERSION, FUNC_CALL_PATH))
+            .get(list_all_functions);
+        f.at(&format!("{}/logs/:name/:from/:lines", API_VERSION))
+            .get(get_logs);
         f
     });
     app.at("/f/").nest({
