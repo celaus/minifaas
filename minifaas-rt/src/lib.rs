@@ -53,7 +53,6 @@ pub struct RuntimeConnection {
 }
 
 impl RuntimeConnection {
-
     ///
     ///
     ///
@@ -121,7 +120,7 @@ impl RuntimeConnection {
                 .call(StopExecutorMsg { code })
                 .await
                 .map(|_| RuntimeResponse::Ok),
-                
+
             _ => Ok(RuntimeResponse::FunctionRuntimeUnavailable(
                 ProgrammingLanguage::JavaScript,
             )),

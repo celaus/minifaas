@@ -1,6 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
-
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
 pub enum HttpMethod {
@@ -78,4 +77,3 @@ impl From<HashMap<String, Vec<u8>>> for HttpTriggerOutputs {
         }
     }
 }
-

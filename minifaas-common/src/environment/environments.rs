@@ -3,7 +3,7 @@ use anyhow::Result;
 
 use super::Environment;
 use async_std::fs::{create_dir_all, read, remove_dir_all, write};
-use log::{info, debug};
+use log::{debug, info};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uuid::Uuid;

@@ -3,7 +3,6 @@ use async_std::sync::{Arc, RwLock};
 use log::{debug, error, info, trace, warn};
 use std::path::PathBuf;
 
-
 ///
 /// DataStore's configuration options
 ///
@@ -21,11 +20,9 @@ impl DataStoreConfig {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use minifaas_test::get_empty_tmp_dir;
-   
 }

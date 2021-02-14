@@ -86,20 +86,11 @@ async fn main() -> Result<()> {
                 .value_name("config.toml")
                 .takes_value(true),
         )
-        .arg(
-            Arg::with_name("logging")
-                .short("l")
-                .long("logging-conf")
-                .value_name("logging.yml")
-                .takes_value(true)
-                .help("Sets the logging configuration [default: logging.yml]"),
-        )
         .get_matches();
 
     let config_filename = matches.value_of("config").unwrap_or("config.toml");
-    let logging_filename = matches.value_of("logging").unwrap_or("logging.yml");
 
-    log4rs::init_file(logging_filename, Default::default()).expect("Could not initialize log4rs.");
+    env_logger::init();
 
     info!(
         "Using configuration file '{}' and logging config '{}'",

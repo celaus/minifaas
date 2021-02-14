@@ -6,19 +6,19 @@ pub mod triggers;
 mod types;
 
 pub use crate::types::*;
-pub use triggers::Trigger;
 use anyhow::Result;
 use async_std::path::PathBuf;
 pub use datastore::{DataStoreConfig, FaaSDataStore, UserFunctionRecord, UserFunctionType};
 pub use environment::{Environment, Environments};
 use log::{debug, error, info, trace, warn};
 use std::sync::Arc;
+pub use triggers::Trigger;
 use uuid::Uuid;
 
 pub use runtime::{FunctionInputs, FunctionOutputs, RuntimeRequest, RuntimeResponse};
 ///
 /// Creates and prepares the file system
-/// 
+///
 pub async fn create_or_load_storage(config: DataStoreConfig) -> Result<FaaSDataStore> {
     let store = FaaSDataStore::from_path(&config.path).await?;
     info!("Read {} functions from store", store.len().await);
@@ -45,8 +45,8 @@ pub async fn sync_environments<P: Into<PathBuf>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{runtime::FunctionCode, datastore::UserFunctionRecord};
     use crate::triggers::http::HttpMethod;
+    use crate::{datastore::UserFunctionRecord, runtime::FunctionCode};
     use minifaas_test::get_empty_tmp_dir;
 
     #[async_std::test]

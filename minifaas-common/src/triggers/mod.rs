@@ -7,6 +7,7 @@ use http::HttpMethod;
 /// Represents a trigger for the Function as a Service function. Declares the required parameters and so on. Defaults to `None` which means disabled.
 ///
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(tag = "type", content = "when")]
 pub enum Trigger {
     /// Execute on a specified HTTP call
     Http(HttpMethod),

@@ -19,7 +19,7 @@ url = "2.2"
 async-trait = "*"
 chrono = "*"
 xactor = "0.7"
-async-std = "1.7"
+async-std = "1.8"
 #surf = {version="1.0.3", features=["curl-client"]}
 #reqwest = {version="*", features=["rustls-tls", "gzip"]}
 ureq = "*"

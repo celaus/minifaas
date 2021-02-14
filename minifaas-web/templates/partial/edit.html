@@ -52,7 +52,11 @@
                             Interval (CRON)
                         </label>
                         <div class="col-lg-7">
+                            {% if selected_function.trigger().is_timer() %}
                             <input id="fn-trigger-cron" type="text" class="form-control" aria-label="Cron" value="{{ selected_function.trigger() }} ">
+                            {% else %}
+                            <input id="fn-trigger-cron" type="text" class="form-control" aria-label="Cron" value="">
+                            {% endif %}
                         </div>
                     </label>
                 </div>

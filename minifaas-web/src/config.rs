@@ -31,7 +31,6 @@ pub struct Runtime {
     #[serde(default = "default_timer_resolution_ms")]
     pub timer_tick_ms: i64,
 
-
     #[serde(default = "default_max_runtime_secs")]
     pub max_runtime_secs: u64,
 }

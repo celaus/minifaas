@@ -54,7 +54,7 @@ impl Environment {
     pub async fn delete(&mut self) -> Result<()> {
         remove_dir_all(&self.root).await.map_err(AnyError::from)
     }
-    
+
     ///
     /// Checks whether an environment contains the file specified
     ///

@@ -5,10 +5,10 @@ use anyhow::Result;
 use async_std::task;
 use log::{debug, error, info, warn};
 use minifaas_common::runtime::RawFunctionInput;
-use std::{sync::Arc, io};
 use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::{io, sync::Arc};
 
 /*
 -A, --allow-all Allow all permissions. This disables all security.
@@ -21,7 +21,7 @@ use std::process::{Command, Stdio};
 --allow-write=<allow-write> Allow file system write access. You can specify an optional, comma-separated list of directories or files to provide a allow-list of allowed file system access.
 */
 
-pub const DEFAULT_VERSION: &str = "1.4.2";
+pub const DEFAULT_VERSION: &str = "1.7.4";
 const DEFAULT_DENO_EXE_NAME: &str = "deno";
 
 #[derive(Clone, Debug)]

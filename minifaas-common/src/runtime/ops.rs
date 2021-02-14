@@ -1,9 +1,7 @@
-
-
-use crate::{FunctionOutputs, FunctionInputs};
 use crate::triggers::http::HttpTriggerOutputs;
 use crate::UserFunctionRecord;
 use crate::{errors::ExecutionError, ProgrammingLanguage};
+use crate::{FunctionInputs, FunctionOutputs};
 use std::boxed::Box;
 use std::sync::Arc;
 use uuid::Uuid;

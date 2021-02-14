@@ -1,6 +1,6 @@
 use crate::UserFunctionType;
-use minifaas_common::{ProgrammingLanguage, Trigger};
 use askama::*;
+use minifaas_common::{ProgrammingLanguage, Trigger};
 use serde::{Deserialize, Serialize};
 
 #[derive(Template)]
@@ -11,14 +11,11 @@ pub struct IndexViewModel {
     pub programming_languages: Vec<ProgrammingLanguage>,
     pub selected: Option<usize>,
     pub base_url: String,
-    pub fn_base_path: String 
+    pub fn_base_path: String,
 }
-
-
 
 #[derive(Template, Serialize, Deserialize)]
 #[template(source = "{{ logs|linebreaks }}", ext = "html", escape = "none")]
 pub struct LogViewModel {
     pub logs: String,
 }
-

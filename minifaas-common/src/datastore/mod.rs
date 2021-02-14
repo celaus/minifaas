@@ -1,12 +1,12 @@
 mod config;
-mod record;
 mod json_file;
+mod record;
 
 pub use crate::types::*;
 use async_std::sync::Arc;
+pub use record::UserFunctionRecord;
 use std::boxed::Box;
 use std::collections::HashMap;
-pub use record::UserFunctionRecord;
 pub type UserFunctionType = Arc<Box<UserFunctionRecord>>;
 type InnerStorageType = HashMap<String, UserFunctionType>;
 

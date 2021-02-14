@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tide;
 use tide::{Body, Request, Response, StatusCode};
 
-type AppSate = (Arc<FaaSDataStore>, RuntimeConnection);
+type AppState = (Arc<FaaSDataStore>, RuntimeConnection);
 
 use super::views::LogViewModel;
 
@@ -30,16 +30,18 @@ impl ReturnTypeOptions {
 ///
 /// API call to save a function using a JSON object.
 ///
-pub async fn save_function(mut req: Request<AppSate>) -> tide::Result {
+pub async fn save_function(mut req: Request<AppState>) -> tide::Result {
     let item: UserFunctionDeclaration = req.body_json().await?;
     let name = &item.name;
 
     // Check if the cron string is valid.
     match &item.trigger {
         Trigger::Interval(cron_str) => {
-            cron_str
-                .parse::<cron::Schedule>()
-                .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+            let e = cron_str.parse::<cron::Schedule>();
+            if e.is_err() {
+                error!("Couldn't parse CRON string ({}): {:?}", cron_str, e);
+            }
+            e.map_err(|e| tide::Error::from_str(StatusCode::BadRequest, e.to_string()))?;
         }
         _ => (),
     }
@@ -92,7 +94,7 @@ pub async fn save_function(mut req: Request<AppSate>) -> tide::Result {
     }
 }
 
-pub async fn remove_function(req: Request<AppSate>) -> tide::Result {
+pub async fn remove_function(req: Request<AppState>) -> tide::Result {
     let (storage, _) = req.state();
     let name = req.param("name")?;
     if !name.trim().is_empty() {
@@ -106,7 +108,7 @@ pub async fn remove_function(req: Request<AppSate>) -> tide::Result {
     }
 }
 
-pub async fn get_logs(req: Request<AppSate>) -> tide::Result {
+pub async fn get_logs(req: Request<AppState>) -> tide::Result {
     let (storage, connection) = req.state();
     let name = req.param("name")?;
     let output_format: ReturnTypeOptions = req.query().unwrap_or(ReturnTypeOptions {
@@ -156,7 +158,7 @@ pub async fn get_logs(req: Request<AppSate>) -> tide::Result {
     }
 }
 
-pub async fn list_all_functions(req: Request<AppSate>) -> tide::Result {
+pub async fn list_all_functions(req: Request<AppState>) -> tide::Result {
     let (storage, _) = req.state();
     let mut resp = Response::new(StatusCode::Ok);
     resp.set_body(Body::from_json(&storage.values().await)?);

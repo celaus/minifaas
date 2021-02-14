@@ -4,10 +4,9 @@ use async_std::fs::OpenOptions;
 use async_std::io::BufReader;
 use async_std::io::BufWriter;
 use async_std::io::Read;
-use minifaas_common::Environment;
 use async_std::prelude::*;
 use log::info;
-
+use minifaas_common::Environment;
 
 pub struct FileLogCollector {
     pub file_name: String,
@@ -39,7 +38,7 @@ impl LogCollector for FileLogCollector {
         info!("Wrote to {:?}: {}", file_name, logs);
         Ok(())
     }
-    
+
     async fn reader(&self, env: &Environment) -> Result<Self::Reader> {
         let path = env.absolute_path(&self.file_name).await;
         Ok(BufReader::new(File::open(path).await?))
@@ -49,12 +48,11 @@ impl LogCollector for FileLogCollector {
 #[async_trait::async_trait]
 pub trait LogCollector {
     type Reader: Read;
-    
-    ///
-    /// 
-    /// 
-    async fn collect(&self, logs: &str, env: &Environment) -> Result<()>;
 
+    ///
+    ///
+    ///
+    async fn collect(&self, logs: &str, env: &Environment) -> Result<()>;
 
     async fn reader(&self, env: &Environment) -> Result<Self::Reader>;
 }

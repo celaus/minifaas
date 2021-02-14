@@ -4,7 +4,6 @@ mod environments;
 pub use environment::Environment;
 pub use environments::Environments;
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

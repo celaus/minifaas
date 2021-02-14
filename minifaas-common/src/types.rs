@@ -1,6 +1,6 @@
+use crate::runtime::FunctionCode;
 use crate::triggers::Trigger;
 use serde::{Deserialize, Serialize};
-use crate::runtime::FunctionCode;
 
 ///
 /// The programming language the FaaS function is created with. There should be a runtime available for each of the variants except `Unknown`.
