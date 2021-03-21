@@ -92,10 +92,7 @@ async fn main() -> Result<()> {
 
     env_logger::init();
 
-    info!(
-        "Using configuration file '{}' and logging config '{}'",
-        config_filename, logging_filename
-    );
+    info!("Using configuration file '{}'", config_filename);
     debug!(
         "serialized {}",
         serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()

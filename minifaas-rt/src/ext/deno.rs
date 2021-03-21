@@ -167,7 +167,7 @@ impl ToolchainSetup for DenoSetup {
             let mut file = env.add_file(&self.local_path)?;
 
             task::spawn_blocking(move || {
-                let resp = ureq::get(&origin).call();
+                let resp = ureq::get(&origin).call()?;
                 let mut r = resp.into_reader();
                 let mut zipped = vec![];
                 r.read_to_end(&mut zipped)?;
