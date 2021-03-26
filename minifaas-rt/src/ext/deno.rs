@@ -183,13 +183,17 @@ impl ToolchainSetup for DenoSetup {
         }
     }
 
+    #[cfg(target_family = "windows")]
     async fn post_setup(&self, env: &Environment) -> Result<()> {
-        if cfg!(target_family = "unix") {
-            use std::os::unix::fs::PermissionsExt;
-            let path = env.absolute_path(&self.local_path).await;
-            // permissions for this should be -rwxr-xr-x, or 755
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        Ok(())
+    }
+
+    #[cfg(target_family = "unix")]
+    async fn post_setup(&self, env: &Environment) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let path = env.absolute_path(&self.local_path).await;
+        // permissions for this should be -rwxr-xr-x, or 755
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         Ok(())
     }
 }
