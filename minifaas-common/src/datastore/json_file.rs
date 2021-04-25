@@ -1,19 +1,15 @@
-use crate::triggers::Trigger;
 pub use crate::types::*;
 use anyhow::Result;
 use async_std::fs::File;
 use async_std::io::prelude::*;
 use async_std::sync::{Arc, RwLock};
 use async_std::task;
-use log::{debug, error, info, trace, warn};
-use serde::{Deserialize, Serialize};
+use log::{error, info};
 use std::boxed::Box;
 use std::collections::HashMap;
-use std::fmt;
 use std::fs::OpenOptions;
 use std::io::BufReader;
 use std::path::PathBuf;
-use uuid::Uuid;
 
 use super::record::UserFunctionRecord;
 

@@ -1,45 +1,37 @@
-use crate::defaults::{
-    default_db_name, default_env_path, default_max_runtime_secs, default_no_runtime_threads,
-    default_timer_resolution_ms,
-};
+
 use anyhow::Result;
-use serde;
-use serde::Deserialize;
-use std::io::Read;
+use envconfig::Envconfig;
 
-#[derive(Deserialize)]
+#[derive(Envconfig)]
 pub struct Settings {
-    pub server: Server,
-    pub runtime: Runtime,
-}
 
-#[derive(Deserialize)]
-pub struct Server {
+    #[envconfig(from = "MF_ADDR", default = "0.0.0.0:6200")]
     pub endpoint: String,
-}
-#[derive(Deserialize)]
-pub struct Runtime {
-    #[serde(default = "default_db_name")]
-    pub db_path: String,
 
-    #[serde(default = "default_env_path")]
+    #[envconfig(from = "MF_WEB_STATIC_DIR", default = "static")]
+    pub static_dir_path: String,
+
+    #[envconfig(from = "MF_DB_PATH", default = "functions.db")]
+    pub functions_db_path: String,
+
+    #[envconfig(from = "MF_ENV_ROOT_PATH", default = "/tmp")]
     pub env_root: String,
 
-    #[serde(default = "default_no_runtime_threads")]
-    pub no_threads: usize,
+    #[envconfig(from = "MF_NO_RUNTIME_THREADS", default = "15")]
+    no_threads_raw: String,
 
-    #[serde(default = "default_timer_resolution_ms")]
-    pub timer_tick_ms: i64,
+    #[envconfig(from = "MF_TICK_EVERY_MS", default = "1000")]
+    timer_tick_ms_raw: String,
 
-    #[serde(default = "default_max_runtime_secs")]
-    pub max_runtime_secs: u64,
+    #[envconfig(from = "MF_MAX_FUNCTION_RUNTIME_SECS", default = "300")]
+    max_runtime_secs_raw: String,
 }
 
-///
-/// Reads a TOML-based configuration from a Read object into a Settings object.
-///
-pub fn read_config<T: Read + Sized>(mut f: T) -> Result<Settings> {
-    let mut buffer = String::new();
-    f.read_to_string(&mut buffer)?;
-    toml::from_str(&buffer).map_err(anyhow::Error::from)
+impl Settings {
+    
+    pub fn timer_tick_ms(&self) -> Result<i64> { self.timer_tick_ms_raw.parse().map_err(anyhow::Error::from) }
+    
+    pub fn max_runtime_secs(&self) -> Result<u64> { self.max_runtime_secs_raw.parse().map_err(anyhow::Error::from) }
+
+    pub fn no_threads(&self) -> Result<usize> { self.no_threads_raw.parse().map_err(anyhow::Error::from) }
 }

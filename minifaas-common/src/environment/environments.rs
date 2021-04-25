@@ -2,8 +2,7 @@ use crate::errors::PreparationError::EnvironmentAddFailed;
 use anyhow::Result;
 
 use super::Environment;
-use async_std::fs::{create_dir_all, read, remove_dir_all, write};
-use log::{debug, info};
+use log::debug;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -31,7 +30,7 @@ impl Environments {
     }
 
     ///
-    ///
+    /// Finds or creates an environment with the provided GUID. 
     ///
     pub async fn get_or_create(&mut self, environment_id: Uuid) -> Result<&Environment> {
         debug!("Environment with id '{}' requested", environment_id);

@@ -1,3 +1,4 @@
+#![allow(clippy::upper_case_acronyms)]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

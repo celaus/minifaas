@@ -3,13 +3,11 @@ use crate::ext::toolchain::ToolchainSetup;
 use crate::Environment;
 use anyhow::Result;
 use async_std::task;
-use log::{debug, error, info, warn};
+use log::{error, debug};
 use minifaas_common::runtime::RawFunctionInput;
-use std::io;
-use std::io::Read;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use std::{env, sync::Arc};
+use std::sync::Arc;
 
 pub const DEFAULT_VERSION: &str = "3.2.57";
 const DEFAULT_BASH_EXE_NAME: &str = "bash";

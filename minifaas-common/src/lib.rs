@@ -10,7 +10,7 @@ use anyhow::Result;
 use async_std::path::PathBuf;
 pub use datastore::{DataStoreConfig, FaaSDataStore, UserFunctionRecord, UserFunctionType};
 pub use environment::{Environment, Environments};
-use log::{debug, error, info, trace, warn};
+use log::info;
 use std::sync::Arc;
 pub use triggers::Trigger;
 use uuid::Uuid;

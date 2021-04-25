@@ -96,7 +96,7 @@ impl Handler<OpsMsg> for FunctionExecutor {
 
 #[async_trait::async_trait]
 impl Handler<EnvironmentIdMsg> for FunctionExecutor {
-    async fn handle(&mut self, _ctx: &mut Context<Self>, msg: EnvironmentIdMsg) -> Result<Uuid> {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, _msg: EnvironmentIdMsg) -> Result<Uuid> {
         Ok(self.environment.id)
     }
 }

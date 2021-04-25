@@ -8,7 +8,6 @@ pub use record::UserFunctionRecord;
 use std::boxed::Box;
 use std::collections::HashMap;
 pub type UserFunctionType = Arc<Box<UserFunctionRecord>>;
-type InnerStorageType = HashMap<String, UserFunctionType>;
 
 pub use config::DataStoreConfig;
 pub use json_file::JsonFaaSDataStore as FaaSDataStore;

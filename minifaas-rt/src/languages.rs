@@ -5,21 +5,6 @@ use minifaas_common::ProgrammingLanguage;
 use std::collections::HashMap;
 
 ///
-/// Which toolchains (language runtimes) are currently supported
-///
-#[derive(Debug, Copy, Clone)]
-pub enum SupportedToolchains {
-    JavaScript,
-    None,
-}
-
-impl Default for SupportedToolchains {
-    fn default() -> Self {
-        SupportedToolchains::None
-    }
-}
-
-///
 /// A mapping of a toolchains to a languages in two separate stores.
 /// Keeps build toolchains and exec toolchains separate.
 ///

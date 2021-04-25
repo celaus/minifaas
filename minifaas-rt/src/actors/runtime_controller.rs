@@ -78,7 +78,7 @@ impl RuntimeController {
     async fn unsubscribe_from_triggers(
         &self,
         name: &String,
-        addr: Addr<FunctionExecutor>,
+        _addr: Addr<FunctionExecutor>,
         trigger: Trigger,
     ) -> Result<()> {
         match trigger {

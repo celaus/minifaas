@@ -1,4 +1,4 @@
-use anyhow::{Error as AnyError, Result};
+use anyhow::{anyhow, Error as AnyError, Result};
 use async_std::fs::DirBuilder;
 use async_std::fs::File;
 use async_std::fs::{create_dir_all, read, remove_dir_all, write};
@@ -15,6 +15,9 @@ use super::Environments;
 
 const ID_FILE_NAME: &str = ".minifaas-id";
 
+///
+/// An Environment is essentially a directory for the Function to run in. Ideally the directory serves all needs. It also contains an "id file" called `.minifaas-id` that holds the GUID, which the runtime recognizes it by.
+///
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Default)]
 pub struct Environment {
     root: String,
@@ -22,9 +25,10 @@ pub struct Environment {
 }
 
 impl Environment {
+
     ///
-    ///
-    ///
+    /// Creates a new environment at the provided location with said GUID.
+    /// 
     pub async fn create_with_id<S: Into<PathBuf>>(root: S, env_id: Uuid) -> Result<Self> {
         let root = root.into();
         // create required environment artifacts (the directory and an id file)
@@ -40,7 +44,7 @@ impl Environment {
         Ok(Environment {
             root: String::from(
                 root.to_str()
-                    .ok_or_else(|| AnyError::msg("Could not convert env root to string"))?,
+                    .ok_or_else(|| anyhow!("Could not convert env root to string"))?,
             ),
             id: env_id,
         })

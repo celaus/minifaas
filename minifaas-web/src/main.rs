@@ -1,5 +1,4 @@
 mod config;
-mod defaults;
 mod utils;
 
 mod routes;
@@ -8,29 +7,28 @@ use routes::*;
 
 use anyhow::Result;
 use clap::{App as ClApp, Arg};
-use config::{read_config, Settings};
+use config::Settings;
 use minifaas_rt::RuntimeConnection;
-
-use log::{debug, error, info, trace, warn};
+use envconfig::Envconfig;
+use log::{debug, info};
 use minifaas_common::*;
 use minifaas_rt::{create_runtime, RuntimeConfiguration};
-
-use std::fs::File;
 use std::sync::Arc;
 
 use tide;
 const FUNC_CALL_PATH: &str = "f";
 const API_VERSION: &str = "v1";
+const VERSION: &str = "0.1.0";
 
 async fn start_runtime(settings: &Settings) -> Result<(Arc<FaaSDataStore>, RuntimeConnection)> {
     // set up connections to aux projects
     let _storage = Arc::new(
-        create_or_load_storage(DataStoreConfig::new(&settings.runtime.db_path, true)).await?,
+        create_or_load_storage(DataStoreConfig::new(&settings.functions_db_path, true)).await?,
     );
-    let predefined_envs = sync_environments(&settings.runtime.env_root, _storage.clone()).await?;
+    let predefined_envs = sync_environments(&settings.env_root, _storage.clone()).await?;
 
     let runtime_connection = create_runtime(
-        RuntimeConfiguration::new(settings.runtime.no_threads, settings.runtime.timer_tick_ms),
+        RuntimeConfiguration::new(settings.no_threads()?, settings.timer_tick_ms()?),
         predefined_envs,
         _storage.clone(),
     )
@@ -48,7 +46,7 @@ pub async fn start_web_server(
     //
     let mut app = tide::with_state((storage.clone(), runtime_channel.clone()));
     app.with(tide::log::LogMiddleware::new());
-    app.at("/assets").serve_dir("./minifaas-web/static")?;
+    app.at("/assets").serve_dir(&settings.static_dir_path)?;
     app.at("/").get(index);
     app.at("/api").nest({
         let mut f = tide::with_state((storage.clone(), runtime_channel.clone()));
@@ -67,7 +65,7 @@ pub async fn start_web_server(
         f.at("/call/:name").all(call_function);
         f
     });
-    app.listen(settings.server.endpoint.to_owned()).await?;
+    app.listen(settings.endpoint.to_owned()).await?;
     Ok(())
 }
 
@@ -75,7 +73,7 @@ pub async fn start_web_server(
 
 async fn main() -> Result<()> {
     let matches = ClApp::new("MiniFaaS")
-        .version("0.1.0")
+        .version(VERSION)
         .author("Claus Matzinger. <claus.matzinger+kb@gmail.com>")
         .about("A no-fluff Function-as-a-Service runtime for home use.")
         .arg(
@@ -88,17 +86,14 @@ async fn main() -> Result<()> {
         )
         .get_matches();
 
-    let config_filename = matches.value_of("config").unwrap_or("config.toml");
-
     env_logger::init();
 
-    info!("Using configuration file '{}'", config_filename);
+    info!(".:::MINIFAAS v{} :::.", VERSION);
     debug!(
         "serialized {}",
         serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()
     );
-    let mut f = File::open(config_filename).expect("Could not open config file.");
-    let settings: Settings = read_config(&mut f).expect("Could not read config file.");
+    let settings= Settings::init_from_env()?;
 
     let (storage, runtime_channel) = start_runtime(&settings).await?;
 

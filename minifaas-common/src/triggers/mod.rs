@@ -69,5 +69,3 @@ impl std::fmt::Display for Trigger {
         write!(f, "{}", text)
     }
 }
-
-pub trait RawOutputConver {}
