@@ -184,7 +184,7 @@ impl ToolchainSetup for DenoSetup {
     }
 
     #[cfg(target_family = "windows")]
-    async fn post_setup(&self, env: &Environment) -> Result<()> {
+    async fn post_setup(&self, _env: &Environment) -> Result<()> {
         Ok(())
     }
 

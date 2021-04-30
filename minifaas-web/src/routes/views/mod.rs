@@ -18,7 +18,7 @@ type AppSate = (Arc<FaaSDataStore>, RuntimeConnection);
 
 use models::IndexViewModel;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct MainPageShowFunction {
     show: String,
 }
@@ -30,6 +30,7 @@ struct MainPageShowFunction {
 pub async fn index(req: Request<AppSate>) -> tide::Result {
     let (storage, _) = req.state();
     let which: Option<MainPageShowFunction> = req.query().ok();
+    trace!("Called index function with parameters: {:?}", which);
 
     let mut functions = storage.values().await;
     functions.sort_by(|e1, e2| e1.name().cmp(e2.name()));

@@ -1,4 +1,3 @@
-use log::{debug, error, info, warn};
 use minifaas_common::ProgrammingLanguage;
 
 use minifaas_common::triggers::http::HttpMethod;

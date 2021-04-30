@@ -39,6 +39,8 @@ pub async fn sync_environments<P: Into<PathBuf>>(
         .map(|(_k, f)| (*f.language(), f.environment_id))
         .collect::<Vec<(ProgrammingLanguage, Uuid)>>();
     let expected_env_ids: Vec<_> = ids.iter().map(|i| i.1).collect();
+    println!("______");
+
     Environment::sync_all(root.into(), &expected_env_ids).await
 }
 

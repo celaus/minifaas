@@ -2,10 +2,10 @@ use crate::utils::convert_http_method;
 use minifaas_rt::RuntimeConnection;
 
 use crate::utils;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info};
 use minifaas_common::triggers::http::HttpTrigger;
 use minifaas_common::*;
-use serde::Deserialize;
+
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::str::FromStr;
@@ -67,7 +67,7 @@ pub async fn call_function(mut req: Request<AppSate>) -> tide::Result {
             RuntimeResponse::FunctionRuntimeUnavailable(lang) => {
                 Err(utils::_400(format!("{}", lang)).await)
             }
-            RuntimeResponse::FunctionExecutionError { message, context } => {
+            RuntimeResponse::FunctionExecutionError { message: _, context } => {
                 Err(utils::_400(context.join("\n")).await)
             } // <- find a good way to return execution errors (stack traces etc)>
             _ => Err(utils::_500("Some error message").await),

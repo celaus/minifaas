@@ -7,7 +7,7 @@ use crate::output_parser::STDOUT_PREFIX;
 use crate::OpsMsg;
 use anyhow::Result;
 use async_std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::{debug, info};
 use minifaas_common::runtime::{RawFunctionInput, RawFunctionOutputWrapper};
 use minifaas_common::Environment;
 use minifaas_common::UserFunctionRecord;

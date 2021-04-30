@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 use futures::future::join_all;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use minifaas_common::triggers::http::HttpTrigger;
 use minifaas_common::triggers::http::HttpTriggerOutputs;
 use minifaas_common::triggers::timer::TimerTrigger;
@@ -63,7 +63,7 @@ impl Handler<HttpTriggerMsg> for HttpTriggered {
             HttpTriggerMsg::Subscribe {
                 route,
                 addr,
-                method,
+                method: _,
             } => {
                 debug!("New route subscribed: {}", route);
                 self.route_table.insert(route, addr)

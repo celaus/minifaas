@@ -26,7 +26,6 @@ async fn start_runtime(settings: &Settings) -> Result<(Arc<FaaSDataStore>, Runti
         create_or_load_storage(DataStoreConfig::new(&settings.functions_db_path, true)).await?,
     );
     let predefined_envs = sync_environments(&settings.env_root, _storage.clone()).await?;
-
     let runtime_connection = create_runtime(
         RuntimeConfiguration::new(settings.no_threads()?, settings.timer_tick_ms()?),
         predefined_envs,
@@ -70,7 +69,6 @@ pub async fn start_web_server(
 }
 
 #[async_std::main]
-
 async fn main() -> Result<()> {
     let matches = ClApp::new("MiniFaaS")
         .version(VERSION)
@@ -94,7 +92,6 @@ async fn main() -> Result<()> {
         serde_json::to_string_pretty(&UserFunctionDeclaration::default()).unwrap()
     );
     let settings= Settings::init_from_env()?;
-
     let (storage, runtime_channel) = start_runtime(&settings).await?;
 
     start_web_server(&settings, storage, runtime_channel).await

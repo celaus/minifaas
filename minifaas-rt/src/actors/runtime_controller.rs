@@ -8,7 +8,7 @@ use crate::{
 use anyhow::Result;
 use async_std::prelude::*;
 use cron::Schedule;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use minifaas_common::Environments;
 use std::collections::HashMap;
 use std::sync::Arc;

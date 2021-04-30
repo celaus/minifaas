@@ -2,7 +2,7 @@ use anyhow::Error as AnyError;
 use askama::Template;
 use minifaas_rt::RuntimeConnection;
 
-use log::{debug, error, info, trace, warn};
+use log::{debug, error};
 use minifaas_common::*;
 use serde::Deserialize;
 
