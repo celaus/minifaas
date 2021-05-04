@@ -144,6 +144,7 @@ impl ToolchainLifecycle for Deno {
         Ok(())
     }
 }
+
 #[async_trait::async_trait]
 impl ToolchainSetup for DenoSetup {
     async fn pre_setup(&mut self, env: &Environment) -> Result<()> {
@@ -166,20 +167,22 @@ impl ToolchainSetup for DenoSetup {
             debug!("Downloading from '{}'", origin);
             let mut file = env.add_file(&self.local_path)?;
 
-            task::spawn_blocking(move || {
+            let download_task = task::spawn_blocking(move || -> anyhow::Result<()>{
                 let resp = ureq::get(&origin).call()?;
                 let mut r = resp.into_reader();
                 let mut zipped = vec![];
                 r.read_to_end(&mut zipped)?;
-                let mut extracted = zip::ZipArchive::new(std::io::Cursor::new(zipped)).unwrap();
-                let mut deno_exe = extracted.by_index(0).unwrap();
+                let mut extracted = zip::ZipArchive::new(std::io::Cursor::new(zipped))?;
+                let mut deno_exe = extracted.by_index(0)?;
                 if io::copy(&mut deno_exe, &mut file)? == deno_exe.size() {
                     Ok(())
                 } else {
                     Err(io::Error::from(io::ErrorKind::NotFound).into())
                 }
             })
-            .await
+            .await;
+            debug!("Result from downloading: {:?}", download_task);
+            download_task
         }
     }
 
